@@ -1,0 +1,26 @@
+digraph G {
+node [shape=box];
+"base_link" [label="base_link"];
+"base_footprint" [label="base_footprint"];
+"imu_link" [label="imu_link"];
+"lidar_link" [label="lidar_link"];
+"wheel_bl" [label="wheel_bl"];
+"wheel_br" [label="wheel_br"];
+"wheel_fl" [label="wheel_fl"];
+"wheel_fr" [label="wheel_fr"];
+node [shape=ellipse, color=blue, fontcolor=blue];
+"base_link" -> "base_joint" [label="xyz: 0 0 -0.09 \nrpy: 0 -0 0"]
+"base_joint" -> "base_footprint"
+"base_link" -> "imu_joint" [label="xyz: 0.12 0 0.15 \nrpy: 0 -0 0"]
+"imu_joint" -> "imu_link"
+"base_link" -> "lidar_joint" [label="xyz: 0.12 0 0.25 \nrpy: 0 -0 0"]
+"lidar_joint" -> "lidar_link"
+"base_link" -> "wheel_bl_joint" [label="xyz: 0 0.116 -0.035 \nrpy: 0 -0 0"]
+"wheel_bl_joint" -> "wheel_bl"
+"base_link" -> "wheel_br_joint" [label="xyz: 0 -0.116 -0.035 \nrpy: 0 -0 0"]
+"wheel_br_joint" -> "wheel_br"
+"base_link" -> "wheel_fl_joint" [label="xyz: 0.24 0.116 -0.035 \nrpy: 0 -0 0"]
+"wheel_fl_joint" -> "wheel_fl"
+"base_link" -> "wheel_fr_joint" [label="xyz: 0.24 -0.116 -0.035 \nrpy: 0 -0 0"]
+"wheel_fr_joint" -> "wheel_fr"
+}

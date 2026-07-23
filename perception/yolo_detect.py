@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""
+Détection d'obstacles YOLO + profondeur — ProtoVA.
+Brique de perception pour le freinage d'urgence (AEB) et, plus tard, l'émission
+d'un DENM V2V.
+
+La voiture (Jetson) publie sa caméra Orbbec (couleur JPEG + profondeur). Ce nœud,
+côté PC, reçoit ces flux, détecte les objets avec YOLOv8n (personne, chaise...),
+estime leur DISTANCE via l'image de profondeur, et lève un signal de FREINAGE si
+un obstacle prioritaire (par défaut : personne) est trop proche.
+
+Publie :
+  /obstacle/detections (String JSON) : [{classe, conf, distance_m, box}]
+  /obstacle/brake      (Bool)        : True = freinage d'urgence requis
+
+L'approche : YOLO donne le "quoi/où", la profondeur donne "à quelle distance".
+Sans profondeur (flux absent), repli sur la taille de la boîte.
+
+Params : color_topic, depth_topic, model, conf, brake_dist, targets, rate, show
+"""
+import json
+
+import numpy as np
+import cv2
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import CompressedImage, Image
+from std_msgs.msg import String, Bool
+from ultralytics import YOLO
+
+
+# ---------- fonctions cœur (pures, testables sans ROS) ----------
+def depth_to_meters(msg):
+    """Image de profondeur ROS -> tableau numpy en mètres (ou None)."""
+    if msg is None:
+        return None
+    if msg.encoding in ('16UC1', 'mono16'):
+        arr = np.frombuffer(bytes(msg.data), np.uint16).reshape(msg.height, msg.width)
+        return arr.astype(np.float32) / 1000.0      # mm -> m
+    if msg.encoding == '32FC1':
+        return np.frombuffer(bytes(msg.data), np.float32).reshape(msg.height, msg.width)
+    return None
+
+
+def sample_distance(depth_m, box, color_shape, pct=20):
+    """Distance (m) à l'obstacle = son point le PLUS PROCHE dans la boîte.
+
+    Une boîte YOLO contient l'objet (avant-plan) ET de l'arrière-plan. La médiane
+    mélange les deux → distance fausse quand l'objet occupe moins de la moitié de la
+    boîte (ex. personne très proche dont la boîte englobe la pièce derrière). Pour un
+    obstacle, ce qui compte est sa surface AVANT : on prend donc un percentile BAS
+    (20ᵉ) des profondeurs valides = le cluster le plus proche, robuste au bruit.
+
+    On restreint à la région centrale (60 %) pour écarter l'arrière-plan des bords, et
+    on ignore les pixels invalides (0, ex. cheveux foncés absorbant l'IR). Coordonnées
+    mises à l'échelle de la profondeur (rapport = 1 si alignée sur la couleur).
+    """
+    if depth_m is None:
+        return None
+    ch, cw = color_shape[:2]
+    dh, dw = depth_m.shape
+    sx, sy = dw / cw, dh / ch
+    x1, y1, x2, y2 = box
+    bw, bh = x2 - x1, y2 - y1
+    rx1, rx2 = int((x1 + 0.2 * bw) * sx), int((x2 - 0.2 * bw) * sx)
+    ry1, ry2 = int((y1 + 0.2 * bh) * sy), int((y2 - 0.2 * bh) * sy)
+    rx1, rx2 = max(0, rx1), min(dw, max(rx1 + 1, rx2))
+    ry1, ry2 = max(0, ry1), min(dh, max(ry1 + 1, ry2))
+    v = depth_m[ry1:ry2, rx1:rx2]
+    v = v[(v > 0.15) & (v < 20.0)]       # ignore invalides et aberrations
+    if v.size < 20:                       # trop peu de points fiables
+        return None
+    return round(float(np.percentile(v, pct)), 2)
+
+
+def run_detection(model, bgr, depth_m, targets, conf, brake_dist, brake_on_any=True):
+    """Retourne (liste_detections, freinage_bool, image_annotée).
+
+    Freinage : par défaut (`brake_on_any=True`) TOUT objet détecté à moins de
+    `brake_dist` déclenche le freinage, quelle que soit sa classe. Un objet loin ne
+    déclenche rien. Si `brake_on_any=False`, seules les classes de `targets` comptent.
+
+    L'image annotée affiche pour chaque objet : classe + DISTANCE (m) + confiance,
+    avec un code couleur : ROUGE = proche → freine ; VERT = loin → OK.
+    """
+    res = model(bgr, verbose=False, conf=conf)[0]
+    h, w = bgr.shape[:2]
+    area = float(h * w)
+    dets, brake = [], False
+    img = bgr.copy()
+    for b in res.boxes:
+        cls = res.names[int(b.cls)]
+        box = [int(v) for v in b.xyxy[0].tolist()]
+        dist = sample_distance(depth_m, box, bgr.shape)
+        conf_v = round(float(b.conf), 2)
+        area_ratio = ((box[2] - box[0]) * (box[3] - box[1])) / area
+        dets.append({'class': cls, 'conf': conf_v, 'distance_m': dist, 'box': box})
+
+        compte = brake_on_any or (cls in targets)      # cet objet compte-t-il pour le frein ?
+        proche = (dist is not None and dist < brake_dist) \
+            or (dist is None and area_ratio > 0.15)     # repli sans profondeur : grosse boîte = proche
+        close = compte and proche
+        if close:
+            brake = True
+
+        # --- dessin : boîte + label "classe distance (conf)" ---
+        color = (0, 0, 255) if close else (0, 200, 0)   # rouge = freine, vert = OK
+        x1, y1, x2, y2 = box
+        dtxt = f"{dist:.1f}m" if dist is not None else "?m"
+        label = f"{cls} {dtxt} ({conf_v:.2f})"
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        yt = max(y1, th + 9)
+        cv2.rectangle(img, (x1, yt - th - 9), (x1 + tw + 6, yt), color, -1)
+        cv2.putText(img, label, (x1 + 3, yt - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    return dets, brake, img
+
+
+# ---------- nœud ROS ----------
+class YoloDetect(Node):
+    def __init__(self):
+        super().__init__('yolo_detect')
+        g = lambda n, d: self.declare_parameter(n, d).value
+        self.color_topic = g('color_topic', '/camera/color/image_raw/compressed')
+        self.depth_topic = g('depth_topic', '/camera/depth/image_raw')
+        model_path = g('model', 'yolov8n.pt')
+        self.conf = float(g('conf', 0.35))
+        self.brake_dist = float(g('brake_dist', 2.0))
+        self.targets = list(g('targets', ['person']))
+        self.brake_on_any = bool(g('brake_on_any', True))   # True = freiner sur TOUT objet proche
+        self.show = bool(g('show', False))
+        rate = float(g('rate', 5.0))
+
+        self.model = YOLO(model_path)
+        self.bgr = None
+        self.depth = None
+        self.pub_det = self.create_publisher(String, '/obstacle/detections', 10)
+        self.pub_brake = self.create_publisher(Bool, '/obstacle/brake', 10)
+        self.create_subscription(CompressedImage, self.color_topic, self.cb_color, qos_profile_sensor_data)
+        self.create_subscription(Image, self.depth_topic, self.cb_depth, qos_profile_sensor_data)
+        self.create_timer(1.0 / rate, self.tick)
+        self.get_logger().info(
+            f"yolo_detect prêt : couleur={self.color_topic}, profondeur={self.depth_topic}, "
+            f"cibles={self.targets}, frein<{self.brake_dist} m")
+
+    def cb_color(self, msg):
+        arr = np.frombuffer(bytes(msg.data), np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is not None:
+            self.bgr = img
+
+    def cb_depth(self, msg):
+        self.depth = depth_to_meters(msg)
+
+    def tick(self):
+        if self.bgr is None:
+            return
+        dets, brake, annotated = run_detection(
+            self.model, self.bgr, self.depth, self.targets, self.conf,
+            self.brake_dist, self.brake_on_any)
+        self.pub_det.publish(String(data=json.dumps(dets)))
+        self.pub_brake.publish(Bool(data=brake))
+        proches = [f"{d['class']} {d['distance_m']}m" for d in dets
+                   if d['distance_m'] is not None and d['distance_m'] < self.brake_dist
+                   and (self.brake_on_any or d['class'] in self.targets)]
+        if brake:
+            self.get_logger().warning(f"FREINAGE ! obstacle(s) proche(s) : {proches}")
+        elif dets:
+            self.get_logger().info(f"{len(dets)} objet(s) détecté(s), rien de proche",
+                                   throttle_duration_sec=2.0)
+        if self.show:
+            cv2.putText(annotated, "FREINAGE" if brake else "", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+            cv2.imshow('ProtoVA - detection YOLO', annotated)
+            cv2.waitKey(1)
+
+    def destroy_node(self):
+        if self.show:
+            cv2.destroyAllWindows()
+        super().destroy_node()
+
+
+def main():
+    rclpy.init()
+    node = YoloDetect()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

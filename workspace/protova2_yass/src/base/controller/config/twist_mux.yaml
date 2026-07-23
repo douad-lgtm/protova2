@@ -1,0 +1,20 @@
+twist_mux:
+  ros__parameters:
+
+    topics:
+      ps4_teleop:
+        topic: /cmd_vel_ps4
+        timeout: 0.5
+        priority: 60
+
+      g29_teleop:
+        topic: /cmd_vel_G29
+        timeout: 0.5
+        priority: 30
+
+      safety:
+        topic: /cmd_vel_aeb
+        timeout: 1.0
+        priority: 255
+
+

@@ -1,0 +1,93 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.1
+    two_d_mode: true
+    map_frame:       map
+    odom_frame:      odom
+    base_link_frame: base_link
+    world_frame:     odom
+    publish_tf: true
+
+
+    #   Bonne sur X, correction de position absolue
+    odom0: odom_rf2o
+    odom0_config: [true,  false,  false,    # x, y, z
+                   false, false, false,     # roll, pitch, yaw
+                   false, false, false,    # vx, vy, vz  ← on laisse le twist faire ça
+                   false, false, false,    # wx, wy, wz
+                   false, false, false]    # ax, ay, az
+    odom0_queue_size: 10
+    odom0_differential: false
+    odom0_relative: false
+    
+    odom1: odom_imu
+    odom1_config: [true,  true,  false,    # x, y, z
+                   false, false, true,     # roll, pitch, yaw
+                   false, false, false,    # vx, vy, vz  ← on laisse le twist faire ça
+                   false, false, true,    # wx, wy, wz
+                   false, false, false]    # ax, ay, az
+    odom1_queue_size: 10
+    odom1_differential: false
+    odom1_relative: false
+    
+
+
+    #   vx fiable, omega_z très fiable → pas de double intégration position
+    twist0: twist
+    twist0_config: [false, false, false,   # x, y, z
+                    false, false, false,   # roll, pitch, yaw
+                    true,  false, false,   # vx ← encodeur
+                    false, false, true,    # wz ← IMU
+                    false, false, false]   # ax, ay, az
+    twist0_queue_size: 10
+    twist0_differential: false
+
+
+    
+
+    use_control: false
+
+    process_noise_covariance: [
+  # x      y       z
+  0.02,  0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.02,  0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   1000.0, 0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  # roll   pitch  yaw
+  0.0,   0.0,   0.0,    1000.0, 0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    1000.0,0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.05,  0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  # vx     vy     vz
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.05, 0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.2,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   1000.0, 0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  # vroll  vpitch vyaw
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    1000.0,  0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     1000.0,0.0,  0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.05,  0.0,  0.0,   0.0,
+  # ax     ay     az
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.5,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.5,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   1000.0]
+
+    initial_estimate_covariance: [
+  # x      y       z
+  0.5,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.5,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   1000.0, 0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  # roll   pitch  yaw
+  0.0,   0.0,   0.0,    1000.0, 0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    1000.0,0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.3,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  # vx     vy     vz
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.5,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.5,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   1000.0, 0.0,     0.0,  0.0,   0.0,  0.0,   0.0,
+  # vroll  vpitch vyaw
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    1000.0,  0.0,  0.0,   0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     1000.0,0.0,  0.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.3,   0.0,  0.0,   0.0,
+  # ax     ay     az
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   1.0,  0.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  1.0,   0.0,
+  0.0,   0.0,   0.0,    0.0,    0.0,   0.0,   0.0,  0.0,   0.0,    0.0,     0.0,  0.0,   0.0,  0.0,   1000.0]

@@ -1,0 +1,13 @@
+# ROS 2 build artefacts
+build/
+install/
+log/
+__pycache__/
+*.pyc
+# LaTeX artefacts
+*.aux
+*.out
+*.toc
+*.synctex.gz
+# modèles YOLO téléchargés
+*.pt

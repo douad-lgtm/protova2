@@ -1,0 +1,183 @@
+<?xml version="1.0"?>
+<robot name="protova2">
+
+  <!-- =============================
+       Matériaux
+  ============================== -->
+  <material name="black">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+
+  <material name="gray">
+    <color rgba="0.6 0.6 0.6 1.0"/>
+  </material>
+
+  <!-- =============================
+       BASE (essieu arrière)
+  ============================== -->
+  <link name="base_link">
+    <visual>
+      <!-- Centre du châssis = moitié de la distance entre essieux -->
+      <origin xyz="0.1225 0 0.055"/>
+      <geometry>
+        <box size="0.245 0.23 0.11"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <!-- footprint au sol -->
+  <link name="base_footprint"/>
+  <joint name="base_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_footprint"/>
+    <origin xyz="0 0 -0.09"/>
+  </joint>
+
+  <!-- =============================
+       ROUES ARRIÈRE (propulsion)
+  ============================== -->
+  <link name="wheel_bl">
+    <visual>
+      <origin rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.051" length="0.045"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
+
+  <joint name="wheel_bl_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_bl"/>
+    <origin xyz="0 0.115 -0.051"/> <!-- demi écartement arrière -->
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <link name="wheel_br">
+    <visual>
+      <origin rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.051" length="0.045"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
+
+  <joint name="wheel_br_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_br"/>
+    <origin xyz="0 -0.115 -0.051"/> <!-- demi écartement arrière -->
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- =============================
+       STEERING AVANT (pivots)
+  ============================== -->
+  <link name="steering_fl"/>
+  <joint name="steering_fl_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="steering_fl"/>
+    <origin xyz="0.245 0.115 -0.051"/> <!-- demi écartement avant -->
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.6" upper="0.6" effort="10" velocity="2"/>
+  </joint>
+
+  <link name="steering_fr"/>
+  <joint name="steering_fr_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="steering_fr"/>
+    <origin xyz="0.245 -0.115 -0.051"/> <!-- demi écartement avant -->
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.6" upper="0.6" effort="10" velocity="2"/>
+  </joint>
+
+  <!-- =============================
+       ROUES AVANT (rotation)
+  ============================== -->
+  <link name="wheel_fl">
+    <visual>
+      <origin rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.051" length="0.045"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
+
+  <joint name="wheel_fl_joint" type="continuous">
+    <parent link="steering_fl"/>
+    <child link="wheel_fl"/>
+    <origin xyz="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <link name="wheel_fr">
+    <visual>
+      <origin rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.051" length="0.045"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
+
+  <joint name="wheel_fr_joint" type="continuous">
+    <parent link="steering_fr"/>
+    <child link="wheel_fr"/>
+    <origin xyz="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- =============================
+       IMU
+  ============================== -->
+  <link name="imu_link">
+    <visual>
+      <geometry>
+        <box size="0.03 0.025 0.01"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0.22 0 0.07"/>
+  </joint>
+
+  <!-- =============================
+       LASER
+  ============================== -->
+  <link name="laser">
+    <visual>
+      <geometry>
+        <cylinder radius="0.035" length="0.08"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser"/>
+    <origin xyz="0.05 0 0.13" rpy="0 0 3.1416"/>
+  </joint>
+
+  <!-- =============================
+       CAMERA
+  ============================== -->
+  <link name="camera_link">
+    <visual>
+      <geometry>
+        <box size="0.03 0.115 0.04"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.235 0 0.13" rpy="0 0 0"/>
+  </joint>
+
+</robot>
