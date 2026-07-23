@@ -1,0 +1,199 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{amssymb}
+\usepackage{pifont}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{lightgreen}{HTML}{E8F5E9}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+
+\lstdefinestyle{sh}{backgroundcolor=\color{codebg}, basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codeblue}\bfseries, commentstyle=\color{codegreen}\itshape,
+  numberstyle=\tiny\color{codegray}, breaklines=true, frame=single,
+  showstringspaces=false, tabsize=2, columns=fullflexible}
+\lstset{style=sh}
+\newcommand{\ok}{\textcolor{success}{\checkmark}}
+
+\title{\textbf{Communication V2V par Vanetza (ETSI CAM)\\ entre PC et Jetson --- ProtoVA}\\[2mm]
+\large Échange de messages C-ITS sur WiFi + intégration ROS2 et alerte de proximité}
+\author{Douae Sebti}
+\date{25 juin 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Ce document décrit la mise en place d'une communication \textbf{V2V}
+(\emph{vehicle-to-vehicle}) entre un PC et une Jetson, au standard européen
+\textbf{ETSI C-ITS} (messages \textbf{CAM}), à l'aide de la pile open-source
+\textbf{Vanetza}. On montre que de vrais messages CAM sont échangés sur un simple
+réseau \textbf{WiFi} (sans matériel radio 802.11p), puis l'intégration dans
+\textbf{ROS2} via un node qui publie les véhicules voisins et déclenche une
+\textbf{alerte de proximité}.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+\section{Contexte et choix techniques}
+Le V2V permet aux véhicules d'échanger leur état (position, vitesse, cap) et des
+alertes, pour la sécurité coopérative.
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Standard.} En France/Europe, c'est l'\textbf{ETSI C-ITS} :
+        \textbf{CAM} (\emph{Cooperative Awareness Message}, position/vitesse
+        périodiques) et \textbf{DENM} (alertes d'événements) --- et non le
+        \textbf{BSM} américain (SAE J2735).
+  \item \textbf{Outil : Vanetza} (\url{https://github.com/riebl/vanetza}),
+        implémentation open-source de la pile ETSI ITS-G5 (GeoNetworking, BTP,
+        CAM/DENM ASN.1, sécurité).
+  \item \textbf{Sans radio dédiée.} Le vrai V2V utilise des radios 802.11p /
+        C-V2X. On ne les a pas (les modems 5G Quectel sont \emph{Uu}, pas
+        \emph{PC5}). L'application \texttt{socktap} de Vanetza tourne sur une
+        \textbf{interface réseau normale} (socket UDP/raw) : deux machines sur le
+        même \textbf{WiFi} échangent de vrais CAM. C'est correct au niveau
+        protocole (messages ETSI), seule la couche radio diffère.
+\end{itemize}
+
+\section{Compilation de Vanetza}
+Sur le PC et la Jetson (Ubuntu 22.04, ROS2 Humble) :
+\begin{lstlisting}[language=bash]
+git clone --depth 1 https://github.com/riebl/vanetza.git
+cd vanetza && mkdir build && cd build
+cmake -DBUILD_SOCKTAP=ON ..        # socktap est OFF par defaut
+make -j4                            # backend crypto = OpenSSL (pas besoin de Crypto++)
+# binaire : ~/vanetza/build/bin/socktap
+\end{lstlisting}
+\textbf{Notes :} Vanetza embarque son propre code GeographicLib et utilise
+\textbf{OpenSSL} (présent) comme backend crypto --- aucune dépendance
+supplémentaire à installer. L'option \texttt{BUILD\_SOCKTAP=ON} est indispensable
+(sinon seules les bibliothèques sont compilées, pas l'application).
+
+\section{Échange de CAM (le cœur du V2V)}
+On lance \texttt{socktap} sur chaque machine, en lien \textbf{UDP} (pas de
+\texttt{sudo}, contrairement au mode \emph{ethernet} raw) :
+\begin{lstlisting}[language=bash]
+# Vehicule A (PC),     interface wlp2s0
+./bin/socktap -l udp -i wlp2s0 -a ca --print-rx-cam --security none --station-id 1
+# Vehicule B (Jetson), interface wlP1p1s0
+./bin/socktap -l udp -i wlP1p1s0 -a ca --print-rx-cam --security none --station-id 2
+\end{lstlisting}
+\textbf{Résultat (\ok) : échange bidirectionnel vérifié.}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+Sens & Reçu & Preuve \\
+\midrule
+Jetson $\rightarrow$ PC & le PC voit \texttt{Station ID: 2} & paquet depuis MAC \texttt{14:75:5b:15:59:32} \\
+PC $\rightarrow$ Jetson & la Jetson voit \texttt{Station ID: 1} & paquet depuis MAC \texttt{10:e1:8e:56:07:1a} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Chaque CAM fait $\sim$99 octets, émis à $\sim$1 Hz, au format ETSI (Protocol
+Version 2, conteneur \emph{CoopAwareness} : position GPS, cap, vitesse, type et
+dimensions du véhicule).
+
+\begin{tcolorbox}[colback=lightgreen,colframe=success,title=Points clés]
+Vrais messages \textbf{ETSI CAM} échangés \textbf{sur WiFi}, \textbf{sans 802.11p}
+et \textbf{sans sudo} (lien UDP). C'est la communication V2V de base
+opérationnelle.
+\end{tcolorbox}
+
+\section{Intégration ROS2 : node \texttt{v2v\_node.py}}
+Pour exploiter le V2V dans le robot, un node ROS2 (Python, \texttt{rclpy}) fait le
+pont : il \textbf{lance socktap}, \textbf{lit ses CAM reçus} (sortie
+\texttt{--print-rx-cam}), les publie en topics ROS2 et calcule une \textbf{alerte
+de proximité}. Aucune modification C++ de Vanetza n'est nécessaire.
+
+\subsection{Architecture}
+\begin{center}
+\texttt{socktap (CAM ETSI, WiFi)} $\rightarrow$ \texttt{v2v\_node.py} (parse)
+$\rightarrow$ \texttt{/v2v/remote\_vehicles} + \texttt{/v2v/alert}
+\end{center}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Parsing.} À chaque CAM reçu : \texttt{Station ID},
+        \texttt{Longitude}/\texttt{Latitude} (en $10^{-7}$ degré),
+        \texttt{Heading} ($0{,}1^\circ$), \texttt{Speed} ($0{,}01$ m/s).
+  \item \textbf{Distance.} Formule de \emph{haversine} entre la position du
+        véhicule et celle reçue.
+  \item \textbf{Topics.} \texttt{/v2v/remote\_vehicles} (JSON : id, lat, lon, cap,
+        vitesse, \texttt{distance\_m}) ; \texttt{/v2v/alert} (texte) si un
+        véhicule est à moins de \texttt{alert\_dist} mètres.
+  \item \textbf{Paramètres.} \texttt{interface, station\_id, my\_lat, my\_lon,
+        alert\_dist, socktap\_bin}.
+\end{itemize}
+\begin{lstlisting}[language=bash]
+python3 ~/v2v_node.py --ros-args \
+  -p interface:=wlP1p1s0 -p station_id:=2 \
+  -p my_lat:=48.7668 -p my_lon:=11.432 -p alert_dist:=10.0 \
+  -p socktap_bin:=/home/protova2/vanetza/build/bin/socktap
+\end{lstlisting}
+
+\subsection{Résultats (\ok)}
+Véhicule B (Jetson) à (48.76680, 11.43200), seuil d'alerte 10 m :
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Cas & \texttt{/v2v/remote\_vehicles} & \texttt{/v2v/alert} \\
+\midrule
+PC proche ($\sim$5 m) & \texttt{distance\_m: 5.56} & \textbf{ALERTE véhicule 1 à 5.6 m} \\
+PC loin ($\sim$1,1 km) & \texttt{distance\_m: 1111.95} & (aucune) \\
+\bottomrule
+\end{tabular}
+\end{center}
+La logique discrimine correctement proche/loin. Les topics (petits messages
+texte) traversent bien le WiFi.
+
+\section{Position dynamique (\ok)}
+Par défaut socktap émet une position \emph{statique}. Pour que le CAM porte la
+position \textbf{réelle/évolutive} du véhicule, on a ajouté à socktap un
+\textbf{fournisseur de position alimenté par UDP} :
+\begin{itemize}[leftmargin=1.4em]
+  \item nouveau \texttt{udp\_position\_provider.cpp/.hpp} (option \texttt{-p udp},
+        port \texttt{--pos-port} 9001) : il reçoit des datagrammes
+        \texttt{"lat,lon"} (degrés) et met à jour la position courante ;
+  \item le node \texttt{v2v\_node.py} s'abonne au topic ROS2
+        \texttt{/v2v/my\_gps} (\texttt{Float64MultiArray [lat, lon]}) et pousse la
+        position à socktap à 5 Hz $\rightarrow$ elle part dans le CAM émis ;
+  \item la position peut venir de l'odométrie/GPS réel, ou d'un simulateur
+        (\texttt{v2v\_gps\_sim.py}) pour une démo.
+\end{itemize}
+\textbf{Démo validée :} un véhicule mobile (PC) se rapproche de 100 m à 3,3 m ; le
+véhicule fixe (Jetson) suit la distance en temps réel et déclenche l'alerte au
+passage sous 10 m. \emph{Important :} les deux véhicules tournent sur des
+\textbf{domaines ROS2 distincts} (le lien V2V passe par Vanetza/WiFi, pas par ROS)
+pour que leurs topics ne se mélangent pas.
+
+\section{Limites et perspectives}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{DENM} : ajouter les messages d'événement (alerte de freinage
+        d'urgence, obstacle).
+  \item \textbf{Réaction physique} : relier l'alerte V2V à l'AEB (freinage auto).
+  \item \textbf{Sécurité} : passer en \texttt{--security certs} (messages signés,
+        comme le C-ITS réel).
+\end{itemize}
+
+\paragraph{Livrables.}
+\texttt{\textasciitilde/vanetza/} (build + \texttt{bin/socktap}, PC et Jetson, avec
+le provider de position UDP) ; \texttt{\textasciitilde/v2v\_node.py} (node ROS2
+pont/alerte, PC et Jetson) ; \texttt{\textasciitilde/v2v\_gps\_sim.py} (simulateur
+de déplacement).
+
+\end{document}

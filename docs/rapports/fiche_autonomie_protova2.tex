@@ -1,0 +1,99 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=1.4cm, bottom=1.4cm, left=1.6cm, right=1.6cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\setlist{nosep, leftmargin=1.3em}
+\titlespacing*{\section}{0pt}{6pt}{3pt}
+\titlespacing*{\subsection}{0pt}{4pt}{2pt}
+\definecolor{primary}{HTML}{1A237E}
+\titleformat{\section}{\large\bfseries\color{primary}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+
+\begin{document}
+
+{\centering\Large\bfseries\color{primary}
+ProtoVA2 --- Conduite autonome réactive\par}
+{\centering\small SEBTI Douae --- \texttt{follow\_the\_gap} \& \texttt{launch\_autonomous.sh}\par}
+\vspace{4pt}\hrule\vspace{6pt}
+
+\section{Le node \texttt{follow\_the\_gap} (le « cerveau » réactif)}
+\textbf{Rôle.} Faire conduire la voiture toute seule en \emph{réagissant} au LiDAR,
+\textbf{sans carte ni localisation} : « je vois un espace libre $\rightarrow$ j'y vais ».
+
+\textbf{Entrée / sortie.}
+\begin{itemize}
+  \item \textbf{Entrée} : \texttt{/scan} (LiDAR RPLIDAR, $\sim$1080 distances sur 360\textdegree).
+  \item \textbf{Sortie} : \texttt{/cmd\_vel\_auto} (\texttt{geometry\_msgs/Twist}) ---
+        \texttt{angular.z} = angle servo (centre 83, $[28;138]$ ; $<$83 droite, $>$83 gauche) ;
+        \texttt{linear.x} = vitesse (m/s).
+\end{itemize}
+
+\textbf{Algorithme (« Follow The Gap ») à chaque scan.}
+\begin{enumerate}
+  \item garder le \textbf{secteur avant} ($\pm$90\textdegree) ; nettoyer et lisser les portées
+        (le LiDAR étant monté « moteur à l'arrière », on décale de 180\textdegree\ pour que l'avant = 0\textdegree) ;
+  \item \textbf{épaissir les obstacles} de la demi-largeur du véhicule (\emph{disparity extender})
+        $\rightarrow$ on ne vise jamais un trou trop étroit pour passer ;
+  \item poser une \textbf{bulle de sécurité} autour du point le plus proche \emph{(seulement
+        s'il est vraiment proche)} pour ne jamais viser un obstacle ;
+  \item trouver le \textbf{plus grand espace libre} (gap) et viser le \textbf{centre de sa zone
+        la plus lointaine} $\rightarrow$ cap, converti en angle servo ;
+  \item \textbf{vitesse} modulée : plus l'avant est dégagé $\rightarrow$ plus vite ; braquage fort
+        ou obstacle proche $\rightarrow$ ralentit ; avant $<$ 0,35 m $\rightarrow$ \textbf{arrêt}.
+\end{enumerate}
+\textbf{Sécurités intégrées :} arrêt si aucun espace libre ; \emph{watchdog} (arrêt si plus de
+scan pendant 0,5 s). Paramètres clés : vitesse 0,12--0,18 m/s, rayon bulle 0,30 m,
+demi-largeur 0,18 m.
+
+\section{Le script \texttt{launch\_autonomous.sh} (la chaîne complète)}
+\textbf{Rôle.} Démarrer d'un coup les 8 nodes ROS\,2 nécessaires à la conduite autonome
+(réseau WiFi, DDS natif, \texttt{ROS\_DOMAIN\_ID=125}), du capteur jusqu'aux actionneurs.
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}c l X l@{}}
+\toprule
+\# & Node & Rôle & Sortie \\
+\midrule
+1 & \texttt{rplidar\_composition}        & LiDAR (perception)                   & \texttt{/scan} \\
+2 & \texttt{detection dist\_min}          & distance mini par secteur            & \texttt{/closest\_object\_front\_distance} \\
+3 & \texttt{safety AEB}                   & freinage d'urgence (prio.\ \textbf{255}) & \texttt{/cmd\_vel\_aeb} \\
+4 & \texttt{navigation follow\_the\_gap}  & conduite réactive (prio.\ \textbf{10})   & \texttt{/cmd\_vel\_auto} \\
+5 & \texttt{controller g29\_teleop}       & reprise pilote (prio.\ \textbf{30})      & \texttt{/cmd\_vel\_G29} \\
+6 & \texttt{twist\_mux}                   & arbitre selon la priorité            & \texttt{/cmd\_vel} \\
+7 & \texttt{controller TX}                & envoie \texttt{/cmd\_vel} au Pico (PWM) & série \texttt{/dev/ttyACM0} \\
+8 & \texttt{RX}                           & retour capteurs (encodeur)           & \texttt{/velocity} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Le flux de données :}
+\texttt{/scan} $\rightarrow$ \texttt{follow\_the\_gap} $\rightarrow$ \texttt{/cmd\_vel\_auto}
+$\rightarrow$ \texttt{twist\_mux} $\rightarrow$ \texttt{/cmd\_vel} $\rightarrow$ \texttt{TX}
+$\rightarrow$ Pico (servo + ESC). En parallèle, \texttt{dist\_min} alimente l'\texttt{AEB}.
+
+\textbf{Arbitrage \texttt{twist\_mux} (hiérarchie de sécurité).} Plusieurs sources peuvent
+commander la voiture ; la priorité la plus haute \emph{active} gagne :
+\[
+\textbf{AEB (255)} \;>\; \text{pilote PS4 (60)} \;>\; \text{pilote G29 (30)} \;>\; \textbf{autonome (10)}
+\]
+$\Rightarrow$ l'autonome a la priorité \textbf{la plus basse} : le freinage d'urgence et le
+pilote peuvent \textbf{toujours} reprendre la main. Le script gère aussi le nettoyage des nodes
+résiduels et un arrêt propre.
+
+\vspace{4pt}\hrule\vspace{3pt}
+{\footnotesize\itshape Résumé : \texttt{follow\_the\_gap} décide \emph{où aller} à partir du
+seul LiDAR (réactif, sans carte) ; \texttt{launch\_autonomous.sh} met en route toute la chaîne
+perception $\rightarrow$ décision $\rightarrow$ arbitrage $\rightarrow$ actionneurs, avec l'AEB
+prioritaire pour la sécurité.}
+
+\end{document}

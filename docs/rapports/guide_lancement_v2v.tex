@@ -1,0 +1,177 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{lightorange}{HTML}{FFF3E0}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+
+\lstdefinestyle{sh}{backgroundcolor=\color{codebg}, basicstyle=\ttfamily\small,
+  keywordstyle=\color{codeblue}\bfseries, commentstyle=\color{codegreen}\itshape,
+  breaklines=true, frame=single, showstringspaces=false, tabsize=2, columns=fullflexible}
+\lstset{style=sh}
+
+\title{\textbf{Guide de lancement --- Stack de communication V2V}\\[2mm]
+\large ProtoVA : Vanetza (CAM ETSI) + ROS2, PC $\leftrightarrow$ Jetson sur WiFi}
+\author{Douae Sebti}
+\date{25 juin 2026}
+
+\begin{document}
+\maketitle
+
+\noindent Ce document explique \textbf{comment lancer} le stack V2V, à 4 niveaux,
+du plus simple (échange de messages bruts) au plus complet (position issue de
+l'odométrie réelle). Les commandes sont prêtes à copier.
+\vspace{4pt}\hrule
+
+\section{Prérequis (déjà en place)}
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item \textbf{Vanetza compilé} sur le PC et la Jetson :
+        \texttt{\textasciitilde/vanetza/build/bin/socktap}
+        (compilé avec \texttt{cmake -DBUILD\_SOCKTAP=ON}, backend OpenSSL).
+  \item \textbf{Scripts / nodes déployés} (PC et Jetson, dans le \texttt{\$HOME}) :
+        \texttt{v2v\_node.py}, \texttt{v2v\_gps\_sim.py}, \texttt{odom\_to\_gps.py} ;
+        côté Jetson : \texttt{launch\_v2v\_odom.sh}, \texttt{slam.launch.py}.
+  \item \textbf{Interfaces WiFi} : PC = \texttt{wlp2s0}, Jetson = \texttt{wlP1p1s0}.
+\end{itemize}
+
+\paragraph{Environnement (à exporter dans chaque terminal ROS2).}
+\begin{lstlisting}[language=bash]
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=1            # voir encadre : un domaine DIFFERENT par vehicule
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+unset ZENOH_SESSION_CONFIG_URI ZENOH_ROUTER_CONFIG_URI ZENOH_CONFIG
+\end{lstlisting}
+
+\begin{tcolorbox}[colback=lightorange,colframe=warning,title=Règle importante : domaines ROS2 distincts]
+Le lien V2V passe par \textbf{Vanetza/WiFi} (pas par ROS DDS). Les deux véhicules
+doivent donc tourner sur des \texttt{ROS\_DOMAIN\_ID} \textbf{différents} (ex. PC=1,
+Jetson=2), sinon leurs topics ROS2 (\texttt{/v2v/my\_gps}, \texttt{/v2v/alert}) se
+mélangent. (Pour la chaîne odométrie, garder le node V2V sur le \emph{même} domaine
+que l'odométrie : 125.)
+\end{tcolorbox}
+
+\section{Niveau 1 --- Échange de CAM brut (socktap seul)}
+Vérifier que les deux véhicules échangent des messages ETSI CAM. Aucun \texttt{sudo}
+(lien UDP).
+\begin{lstlisting}[language=bash]
+# --- PC (vehicule 1) ---
+~/vanetza/build/bin/socktap -l udp -i wlp2s0 -a ca \
+  --print-rx-cam --security none --station-id 1
+
+# --- Jetson (vehicule 2) ---
+~/vanetza/build/bin/socktap -l udp -i wlP1p1s0 -a ca \
+  --print-rx-cam --security none --station-id 2
+\end{lstlisting}
+Chaque côté doit afficher \texttt{Received CAM ... Station ID} de l'autre.
+
+\section{Niveau 2 --- V2V dans ROS2 + alerte de proximité}
+Le node \texttt{v2v\_node.py} lance socktap, publie les véhicules voisins
+(\texttt{/v2v/remote\_vehicles}) et l'alerte (\texttt{/v2v/alert}). Position
+\textbf{statique} ici.
+\begin{lstlisting}[language=bash]
+# --- PC (domaine 1) : vehicule 1, fixe ---
+ROS_DOMAIN_ID=1 python3 ~/v2v_node.py --ros-args \
+  -p interface:=wlp2s0 -p station_id:=1 -p positioning:=static \
+  -p my_lat:=48.76685 -p my_lon:=11.43200 -p alert_dist:=10.0 \
+  -p socktap_bin:=/home/sebtidouae/vanetza/build/bin/socktap
+
+# --- Jetson (domaine 2) : vehicule 2, fixe ---
+ROS_DOMAIN_ID=2 python3 ~/v2v_node.py --ros-args \
+  -p interface:=wlP1p1s0 -p station_id:=2 -p positioning:=static \
+  -p my_lat:=48.76680 -p my_lon:=11.43200 -p alert_dist:=10.0 \
+  -p socktap_bin:=/home/protova2/vanetza/build/bin/socktap
+\end{lstlisting}
+\textbf{Observer (sur un véhicule) :}
+\begin{lstlisting}[language=bash]
+ros2 topic echo /v2v/remote_vehicles   # JSON : id, lat, lon, distance_m...
+ros2 topic echo /v2v/alert             # texte d'alerte si distance < alert_dist
+\end{lstlisting}
+
+\section{Niveau 3 --- Position dynamique (simulée)}
+Le node passe en \texttt{positioning:=udp} : sa position vient du topic
+\texttt{/v2v/my\_gps}, qu'un simulateur fait bouger.
+\begin{lstlisting}[language=bash]
+# vehicule mobile : node en mode udp
+ROS_DOMAIN_ID=1 python3 ~/v2v_node.py --ros-args \
+  -p interface:=wlp2s0 -p station_id:=1 -p positioning:=udp -p pos_port:=9001 \
+  -p alert_dist:=10.0 -p socktap_bin:=/home/sebtidouae/vanetza/build/bin/socktap
+
+# simulateur de deplacement : publie /v2v/my_gps (start -> end)
+ROS_DOMAIN_ID=1 python3 ~/v2v_gps_sim.py --ros-args \
+  -p start_lat:=48.76770 -p start_lon:=11.43200 \
+  -p end_lat:=48.76683  -p end_lon:=11.43200 -p duration:=20.0
+\end{lstlisting}
+
+\section{Niveau 4 --- Position depuis l'ODOMÉTRIE RÉELLE}
+La position du CAM vient de l'odométrie LiDAR (le véhicule bouge réellement, même
+poussé à la main --- pas besoin de l'ESC).
+
+\paragraph{Côté robot (Jetson) --- un seul script.}
+\begin{lstlisting}[language=bash]
+bash ~/launch_v2v_odom.sh
+# = LiDAR + rf2o (/odom_rf2o) + odom_to_gps (-> /v2v/my_gps) + v2v_node (udp)
+#   sur le domaine 125, alerte < 5 m. (Ctrl+C arrete tout.)
+\end{lstlisting}
+\emph{Chaîne :}
+\texttt{LiDAR $\rightarrow$ rf2o $\rightarrow$ odom\_to\_gps $\rightarrow$
+/v2v/my\_gps $\rightarrow$ v2v\_node $\rightarrow$ socktap $\rightarrow$ CAM}.
+
+\paragraph{Côté second véhicule (PC) --- véhicule de référence fixe.}
+\begin{lstlisting}[language=bash]
+ROS_DOMAIN_ID=1 python3 ~/v2v_node.py --ros-args \
+  -p interface:=wlp2s0 -p station_id:=1 -p positioning:=static \
+  -p my_lat:=48.76683 -p my_lon:=11.43200 -p alert_dist:=5.0 \
+  -p socktap_bin:=/home/sebtidouae/vanetza/build/bin/socktap
+\end{lstlisting}
+\textbf{Test :} pousser le robot (aller-retour) ; la distance monte au-dessus de
+5 m (alerte off) puis redescend (alerte on). \emph{Validé : 3,3 m $\to$ 5,3 m $\to$
+3,4 m pour un recul de $\sim$1,7 m.}
+
+\section{Arrêt propre}
+Le V2V ne pilote pas le moteur : il suffit de couper les nodes. \textbf{Astuce
+crochets} pour ne pas tuer sa propre session SSH :
+\begin{lstlisting}[language=bash]
+# sur chaque machine concernee :
+pkill -9 -f "ros2 [l]aunch"
+pkill -9 -f "[s]ocktap"
+pkill -9 -f "[v]2v_node"
+pkill -9 -f "[o]dom_to_gps"
+pkill -9 -f "[r]plidar"; pkill -9 -f "[s]lam_toolbox"; pkill -9 -f "[r]f2o"
+\end{lstlisting}
+
+\section{Récapitulatif des fichiers}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Fichier} & \textbf{Rôle} \\
+\midrule
+\texttt{vanetza/build/bin/socktap} & échange CAM/DENM ETSI (lien UDP/WiFi) \\
+\texttt{v2v\_node.py}              & pont ROS2 : socktap $\rightarrow$ topics + alerte ; position statique ou UDP \\
+\texttt{v2v\_gps\_sim.py}          & simulateur de déplacement (publie \texttt{/v2v/my\_gps}) \\
+\texttt{odom\_to\_gps.py}          & odométrie (m) $\rightarrow$ GPS (lat/lon) $\rightarrow$ \texttt{/v2v/my\_gps} \\
+\texttt{launch\_v2v\_odom.sh}      & robot : LiDAR + rf2o + odom\_to\_gps + v2v\_node \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\paragraph{Piège matériel.} Le connecteur du LiDAR (CP2102) se débranche souvent
+quand on déplace la voiture. Vérifier avant la chaîne odométrie :
+\texttt{lsusb | grep 10c4} et \texttt{ls /dev/ttyUSB0}.
+
+\end{document}

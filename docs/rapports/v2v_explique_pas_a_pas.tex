@@ -1,0 +1,393 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{amsmath}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit, backgrounds, calc}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{lightgreen}{HTML}{E8F5E9}
+\definecolor{lightyellow}{HTML}{FFF8E1}
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+
+\lstdefinestyle{sh}{backgroundcolor=\color{codebg}, basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codeblue}\bfseries, commentstyle=\color{codegreen}\itshape,
+  breaklines=true, frame=single, showstringspaces=false, tabsize=2, columns=fullflexible}
+\lstset{style=sh}
+
+% boites pedagogiques
+\newtcolorbox{analogie}{colback=lightyellow, colframe=warning, title=\textbf{Image simple}}
+\newtcolorbox{cle}{colback=lightgreen, colframe=success, title=\textbf{À retenir}}
+\newtcolorbox{info}{colback=lightblue, colframe=primary, title=\textbf{Le sais-tu ?}}
+
+\title{\textbf{La communication V2V expliquée pas à pas}\\[2mm]
+\large De zéro : ce que c'est, comment ça marche, et ce qu'on a fait sur ProtoVA}
+\author{Douae Sebti}
+\date{26 juin 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Ce document explique \textbf{depuis le début}, avec des mots simples, ce
+qu'est la communication \textbf{V2V} (les voitures qui se parlent), comment sont
+faits les messages échangés (les \textbf{CAM}), et \textbf{chaque étape} que nous
+avons réalisée sur les prototypes ProtoVA, avec les \textbf{résultats obtenus}.
+Aucune connaissance préalable n'est supposée.
+\end{abstract}
+
+\tableofcontents
+\bigskip\hrule
+
+% =====================================================================
+\section{C'est quoi le V2V ?}
+\textbf{V2V} veut dire \emph{Vehicle-to-Vehicle} : « de véhicule à véhicule ».
+C'est quand des voitures \textbf{se parlent entre elles} sans fil, pour
+s'échanger des informations utiles : « je suis ici », « je roule à telle vitesse »,
+« attention, je freine ! ».
+
+\begin{analogie}
+Imagine deux personnes qui marchent dans le brouillard. Si chacune crie
+régulièrement « je suis là, j'avance vers la gauche ! », l'autre sait où elle est
+et évite de la percuter — \emph{même sans la voir}. Le V2V, c'est ça : chaque
+voiture « crie » sa position, et les autres l'entendent.
+\end{analogie}
+
+\textbf{À quoi ça sert ?} À la \textbf{sécurité} : prévenir les collisions, signaler
+un freinage d'urgence, un obstacle, un véhicule dans l'angle mort\ldots{} Les
+voitures coopèrent au lieu d'être chacune isolée.
+
+% =====================================================================
+\section{Quel « langage » parlent les voitures ? (le standard)}
+Pour que les voitures de marques différentes se comprennent, il faut un
+\textbf{langage commun} (un standard). Il en existe deux grands :
+\begin{itemize}[leftmargin=1.4em]
+  \item Aux \textbf{États-Unis} : le \textbf{BSM} (\emph{Basic Safety Message}).
+  \item En \textbf{Europe / France} : le standard \textbf{ETSI C-ITS}, avec deux
+        types de messages :
+        \begin{itemize}[nosep]
+          \item \textbf{CAM} (\emph{Cooperative Awareness Message}) : le message
+                « je suis là » envoyé \textbf{en continu} ($\approx$1 à 10 fois par
+                seconde). Il contient la position, la vitesse, le cap\ldots
+          \item \textbf{DENM} (\emph{Decentralized Environmental Notification
+                Message}) : le message « \textbf{événement !} » envoyé \emph{quand
+                il se passe quelque chose} (freinage d'urgence, accident, obstacle).
+        \end{itemize}
+\end{itemize}
+
+\begin{cle}
+Comme nous sommes en France, on utilise le standard \textbf{européen ETSI} :
+les messages \textbf{CAM} (et plus tard les \textbf{DENM}), \emph{pas} le BSM
+américain.
+\end{cle}
+
+% =====================================================================
+\section{Comment est fait un message CAM ? (son format)}
+Un CAM est comme une \textbf{carte d'identité} que la voiture envoie sans arrêt.
+Voici un \textbf{vrai CAM} émis par notre voiture (capturé pendant nos essais),
+suivi de l'explication de chaque ligne :
+
+\begin{lstlisting}
+ITS PDU Header:
+   Protocol Version: 2
+   Message ID: 2
+   Station ID: 1
+CoopAwareness:
+   Generation Delta Time: 9688
+   Basic Container:
+      Station Type: 5
+      Reference Position:
+         Longitude: 114320680
+         Latitude:  487668616
+         Altitude [Confidence]: 800001 [15]
+   High Frequency Container [Basic Vehicle]:
+      Heading [Confidence]: 900 [10]
+      Speed   [Confidence]: 500 [1]
+      Drive Direction: 0
+      Vehicle Length: 1023
+      Vehicle Width:  62
+\end{lstlisting}
+
+\subsection{L'en-tête (« qui parle et quel type de message »)}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Champ} & \textbf{Signification (en clair)} \\
+\midrule
+Protocol Version: 2 & la version du « langage » utilisé. \\
+Message ID: 2 & le \textbf{type} de message. \texttt{2} = c'est un \textbf{CAM}. \\
+Station ID: 1 & le \textbf{numéro de la voiture} qui parle (sa « plaque »). \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Le corps (« où je suis, comment je roule »)}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Champ} & \textbf{Signification (en clair)} \\
+\midrule
+Generation Delta Time & l'\textbf{heure} d'émission du message (un horodatage). \\
+Station Type: 5 & le \textbf{type de véhicule}. \texttt{5} = voiture (\emph{passenger car}). \\
+Latitude / Longitude & la \textbf{position GPS}. Astuce : c'est en \textbf{$10^{-7}$ degré}.
+   Donc \texttt{487668616} $=$ \textbf{48,7668616\textdegree} et
+   \texttt{114320680} $=$ \textbf{11,4320680\textdegree}. \\
+Altitude [Confidence] & l'altitude et à quel point on en est sûr. \\
+Heading & le \textbf{cap} (la direction vers laquelle pointe la voiture), en
+   $0{,}1$\textdegree. Ici \texttt{900} $=$ \textbf{90\textdegree} (plein Est). \\
+Speed & la \textbf{vitesse}, en $0{,}01$ m/s. Ici \texttt{500} $=$ \textbf{5 m/s}. \\
+Drive Direction & avant (0) ou arrière (1). \\
+Vehicle Length / Width & les \textbf{dimensions} de la voiture. \\
+\bottomrule
+\end{tabularx}
+
+\begin{info}
+Le « \texttt{[Confidence]} » à côté de certains champs, c'est le \textbf{niveau de
+confiance} : « je donne cette valeur, et voici à quel point j'en suis sûr ». Très
+utile pour la sécurité (une mesure incertaine est traitée avec prudence).
+\end{info}
+
+\begin{info}
+\textbf{Cap et vitesse réels.} Au début de la démo, \texttt{Heading} et
+\texttt{Speed} valaient toujours \texttt{0} : seule la position était renseignée.
+Désormais ils sont \textbf{calculés à partir de l'odométrie} : le \textbf{cap}
+vient du lacet (\emph{yaw}) de l'orientation, la \textbf{vitesse} de la norme du
+\emph{twist}. Le nœud \texttt{odom\_to\_gps.py} les publie sur \texttt{/v2v/my\_gps}
+(\texttt{[lat, lon, cap, vitesse]}), \texttt{v2v\_node.py} les transmet à
+\texttt{socktap} par UDP (\texttt{"lat,lon,cap,vitesse"}), et \texttt{socktap}
+les place dans le CAM émis. Le CAM décrit donc maintenant complètement
+« où je suis \textbf{et} comment je roule ».
+\end{info}
+
+\begin{analogie}
+Un CAM, c'est une petite fiche que chaque voiture brandit en boucle :
+\emph{« Bonjour, je suis la voiture n\textsuperscript{o}1 (une voiture normale),
+je suis à telle latitude/longitude, je regarde par là, je roule à telle vitesse,
+je mesure tant de long. »} Toutes les autres voitures lisent cette fiche.
+\end{analogie}
+
+% =====================================================================
+\section{Le problème, et notre astuce}
+Normalement, le V2V utilise une \textbf{radio spéciale} (norme 802.11p, ou la
+5G « directe » dite C-V2X). Nous \textbf{n'avons pas} cette radio.
+
+\textbf{Notre astuce :} on utilise un logiciel libre, \textbf{Vanetza}, qui sait
+fabriquer et lire les messages CAM \emph{exactement} au standard européen, et on
+les fait voyager sur le \textbf{WiFi} ordinaire. Résultat : les messages sont
+\textbf{corrects} (vrais CAM ETSI), seule la « radio » est remplacée par du WiFi.
+
+\begin{cle}
+\textbf{Vanetza} = le logiciel qui parle « CAM/DENM » couramment.
+\textbf{socktap} = le petit programme de Vanetza qui envoie/reçoit les CAM sur le
+réseau. On l'a fait tourner sur le \textbf{PC} et sur la \textbf{Jetson} (le
+mini-ordinateur de la voiture).
+\end{cle}
+
+% =====================================================================
+\section{Vue d'ensemble : le schéma de la chaîne}
+Voici le chemin complet de l'information, du capteur de la voiture jusqu'à
+l'alerte chez l'autre véhicule :
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners, align=center, font=\scriptsize,
+              fill=lightblue, minimum height=9mm, minimum width=16mm},
+  evt/.style={draw, rounded corners, align=center, font=\scriptsize,
+              fill=lightgreen, minimum height=9mm, minimum width=16mm},
+  wifi/.style={draw, ellipse, align=center, font=\scriptsize, fill=lightyellow,
+               minimum height=11mm, minimum width=20mm},
+  arr/.style={-{Stealth}, thick}]
+  % Vehicule B (robot) : capteur -> CAM
+  \node[box] (l) {LiDAR};
+  \node[box, right=7mm of l] (o) {Odométrie\\(rf2o)};
+  \node[box, right=7mm of o] (g) {GPS\\\texttt{odom\_to\_gps}};
+  \node[box, right=7mm of g] (n) {\texttt{v2v\_node}};
+  \node[box, right=7mm of n] (s) {\texttt{socktap}};
+  \draw[arr] (l)--(o); \draw[arr] (o)--(g); \draw[arr] (g)--(n); \draw[arr] (n)--(s);
+  % WiFi
+  \node[wifi, right=10mm of s] (w) {WiFi\\(\,(($\bullet$))\,)};
+  \draw[arr] (s) to[bend left=14] node[above, font=\scriptsize]{CAM $\rightarrow$} (w);
+  \draw[arr] (w) to[bend left=14] node[below, font=\scriptsize]{$\leftarrow$ CAM} (s);
+  % Vehicule A (PC) : recoit -> alerte
+  \node[box, right=10mm of w] (sa) {\texttt{socktap}};
+  \node[box, right=7mm of sa] (na) {\texttt{v2v\_node}};
+  \node[evt, right=7mm of na] (al) {ALERTE\\proximité};
+  \draw[arr] (w)--(sa); \draw[arr] (sa)--(na); \draw[arr] (na)--(al);
+  % cadres vehicules
+  \begin{scope}[on background layer]
+    \node[draw, thick, rounded corners, inner sep=4mm, fit=(l)(s),
+      label=above:{\bfseries Véhicule B (robot / Jetson)}] {};
+    \node[draw, thick, rounded corners, inner sep=4mm, fit=(sa)(al),
+      label=above:{\bfseries Véhicule A (PC)}] {};
+  \end{scope}
+\end{tikzpicture}}
+\caption{Chaîne V2V complète. Le LiDAR mesure le déplacement (odométrie), converti
+en position GPS, mise dans un CAM par \texttt{socktap}, envoyé sur le WiFi. L'autre
+véhicule reçoit le CAM, calcule la distance et déclenche l'alerte. (Symétrique :
+chaque véhicule fait les deux, émission \emph{et} réception.)}
+\end{figure}
+
+% =====================================================================
+\section{Ce qu'on a fait, étape par étape (et les résultats)}
+
+\subsection{Étape 1 --- Installer le logiciel (Vanetza)}
+On a téléchargé et \textbf{compilé} Vanetza sur les deux machines (PC + Jetson).
+\emph{Compiler} = transformer le code source en programme exécutable.
+\textbf{Résultat :} le programme \texttt{socktap} est prêt des deux côtés.
+
+\subsection{Étape 2 --- Faire parler les deux machines}
+On a lancé \texttt{socktap} sur le PC (voiture n\textsuperscript{o}1) et sur la
+Jetson (voiture n\textsuperscript{o}2). Chacun \textbf{envoie} ses CAM et
+\textbf{écoute} ceux de l'autre.
+\textbf{Résultat (réussi) :} le PC affiche « \texttt{Received CAM\ldots{} Station
+ID: 2} » et la Jetson « \texttt{Station ID: 1} ». \textbf{Ils se parlent}, dans les
+deux sens, sur le WiFi. Chaque message fait $\approx$99 octets, envoyé $\approx$1
+fois par seconde.
+
+\subsection{Étape 3 --- Comprendre les messages dans le robot (ROS2)}
+On a écrit un petit programme (\texttt{v2v\_node.py}) qui \textbf{lit} les CAM
+reçus, en \textbf{sort la position} de l'autre voiture, calcule la \textbf{distance}
+entre les deux, et déclenche une \textbf{alerte} si c'est trop proche.
+\textbf{Résultat :} l'autre voiture à 5\,m $\rightarrow$ \textbf{alerte} ; à
+1,1\,km $\rightarrow$ pas d'alerte. La logique fait bien la différence.
+
+\begin{analogie}
+\texttt{v2v\_node} est comme un \textbf{copilote} qui lit à voix haute les fiches
+reçues : « la voiture 1 est à 5 mètres\ldots{} \textbf{attention, trop près !} ».
+\end{analogie}
+
+\subsection{Étape 4 --- Mettre une vraie position qui bouge}
+Au début, la position dans le CAM était \emph{fixe}. On a fait en sorte qu'elle
+\textbf{change} quand la voiture bouge :
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item d'abord avec un \textbf{simulateur} (une position qui se déplace toute seule) ;
+  \item puis avec la \textbf{vraie position} mesurée par le \textbf{LiDAR} de la
+        voiture (le capteur laser qui sait de combien la voiture a avancé) ---
+        c'est l'\textbf{odométrie}.
+\end{itemize}
+On a converti cette position en mètres $\rightarrow$ en GPS (latitude/longitude)
+pour la mettre dans le CAM.
+
+\textbf{Résultat (le plus joli) :} on a poussé la voiture à la main (un
+\textbf{aller-retour} d'environ 1,7\,m). La distance affichée par l'autre véhicule
+a suivi en direct :
+\[
+3{,}3\ \text{m} \;\rightarrow\; 5{,}3\ \text{m (on s'éloigne)} \;\rightarrow\; 3{,}4\ \text{m (on revient)}
+\]
+Et l'\textbf{alerte a disparu} quand on a dépassé 5\,m, puis est \textbf{revenue}
+au retour. Donc le mouvement \textbf{réel} de la voiture voyage bien dans les
+messages CAM.
+
+% =====================================================================
+\section{Comment vérifier « pour de vrai » que ça communique ?}
+Trois façons, de la plus simple à la plus détaillée :
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Le programme le dit} : \texttt{socktap} affiche les CAM reçus
+        (\texttt{--print-rx-cam}) avec le numéro de l'autre voiture.
+  \item \textbf{Voir les paquets passer} avec \texttt{tcpdump} (un « espion »
+        du réseau) :
+\begin{lstlisting}[language=bash]
+sudo tcpdump -i wlp2s0 -n udp port 8947
+\end{lstlisting}
+        Les CAM voyagent en \emph{multicast} sur l'adresse \texttt{239.118.122.97},
+        port \texttt{8947}. On voit un paquet $\approx$1 fois par seconde depuis
+        chaque voiture.
+  \item \textbf{Lire le contenu des CAM} avec \textbf{Wireshark} (un analyseur
+        réseau graphique) : il sait \textbf{décoder} le CAM et montrer tous les
+        champs (position, vitesse\ldots). Filtre à taper : \texttt{cam}.
+\end{enumerate}
+
+% =====================================================================
+\section{Et les DENM ? (les messages d'alerte d'événement)}
+On a beaucoup parlé des \textbf{CAM}. Il existe un deuxième type de message tout
+aussi important : les \textbf{DENM} (\emph{Decentralized Environmental Notification
+Message}).
+
+\begin{analogie}
+Le \textbf{CAM}, c'est le \textbf{battement de cœur} : « je suis là, je suis là, je
+suis là\ldots » envoyé en boucle. Le \textbf{DENM}, c'est la \textbf{fusée de
+détresse} : on ne la tire \emph{que} quand il se passe quelque chose
+d'important — « \textbf{ATTENTION, je freine d'urgence !} » ou « obstacle sur la
+route ! ».
+\end{analogie}
+
+\subsection{CAM vs DENM}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l X X@{}}
+\toprule
+ & \textbf{CAM} & \textbf{DENM} \\
+\midrule
+Quand ? & \textbf{en continu} ($\approx$1--10/s) & \textbf{seulement} lors d'un événement \\
+Contient & position, vitesse, cap & la \textbf{nature} de l'événement + où + quand \\
+But & « savoir qui est où » & « prévenir d'un danger » \\
+Exemple & « je roule ici à 0,1 m/s » & « freinage d'urgence ici ! » \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Ce que contient un DENM (en clair)}
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item \textbf{Conteneur de gestion} : un \textbf{identifiant} de l'alerte (qui
+        l'émet + un numéro), l'\textbf{heure} de détection, la \textbf{position} de
+        l'événement, et sa \textbf{zone/durée} de validité (l'alerte concerne tel
+        endroit pendant tant de temps).
+  \item \textbf{Conteneur de situation} : la \textbf{cause} (un code), par exemple
+        « freinage d'urgence », « véhicule à l'arrêt », « route glissante », et le
+        \textbf{niveau de confiance}.
+  \item \textbf{Conteneur de localisation} : des précisions sur le lieu (trace,
+        direction de la route\ldots).
+\end{itemize}
+
+\begin{info}
+Exemple concret : si notre voiture freine brutalement, elle enverrait un DENM avec
+le code « \emph{freinage d'urgence} » et sa position. Les voitures derrière
+reçoivent l'alerte \textbf{immédiatement}, avant même de voir les feux stop.
+\end{info}
+
+\begin{cle}
+Sur ProtoVA, on a déjà les \textbf{CAM} qui fonctionnent. Les \textbf{DENM} sont la
+\textbf{prochaine étape} : la bibliothèque Vanetza les gère aussi, il restera à
+écrire l'« application » qui les déclenche (par ex. quand l'alerte de proximité ou
+un freinage se produit).
+\end{cle}
+
+% =====================================================================
+\section{Petit glossaire}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Mot} & \textbf{Définition simple} \\
+\midrule
+V2V & des véhicules qui communiquent entre eux sans fil. \\
+CAM & message « je suis là » (position/vitesse), envoyé en continu. \\
+DENM & message « événement ! » (freinage, danger), envoyé quand ça arrive. \\
+ETSI C-ITS & le standard européen qui définit les CAM/DENM. \\
+Vanetza & logiciel libre qui fabrique/lit les messages CAM/DENM. \\
+socktap & le programme de Vanetza qui envoie/reçoit sur le réseau. \\
+Station ID & le numéro identifiant chaque véhicule. \\
+ROS2 & le système qui fait tourner les programmes du robot. \\
+Odométrie & estimation du déplacement de la voiture (ici via le LiDAR). \\
+Multicast & envoyer un message à « tous ceux qui écoutent » sur le réseau. \\
+\bottomrule
+\end{tabularx}
+
+\vspace{6pt}\hrule
+{\footnotesize\itshape Pour les commandes précises de lancement, voir
+\texttt{guide\_lancement\_v2v.tex}. Pour la version technique, voir
+\texttt{doc\_v2v\_vanetza.tex}.}
+
+\end{document}

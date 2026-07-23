@@ -1,0 +1,267 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{tcolorbox}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{multicol}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{setspace}
+
+% ── Images à placer dans le même dossier que ce .tex ──────────────────
+% Renommer vos photos comme suit :
+%   img_protova1.jpg   → Protova1 (châssis jaune, Pico visible)
+%   img_protova2.jpg   → Protova2 (châssis rouge, Jetson + caméra + antennes)
+%   img_g29.jpg        → Volant G29 + pédalier sur support
+%   img_ps4.jpg        → Manette PS4 blanche
+%   img_rqt.png        → Capture rqt (vue caméra + liste topics)
+% ──────────────────────────────────────────────────────────────────────
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{accent}{HTML}{37474F}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{lightgreen}{HTML}{E8F5E9}
+\definecolor{lightorange}{HTML}{FFF3E0}
+\definecolor{darkgray}{HTML}{424242}
+\definecolor{codebg}{HTML}{F5F5F5}
+
+\tcbuselibrary{skins}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!40},
+  showstringspaces=false,
+}
+
+\titleformat{\section}[block]
+  {\color{primary}\large\bfseries}{\thesection.}{6pt}{}
+  [\vspace{1pt}\color{primary}\hrule\vspace{3pt}]
+
+\titleformat{\subsection}[block]
+  {\color{accent}\normalsize\bfseries}{\thesubsection.}{5pt}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{primary}{\textbf{Résumé hebdomadaire}} — Semaine du 16 juin 2026}
+\fancyhead[R]{\textcolor{darkgray}{\small SEBTI Douae — ALTEN Labs}}
+\fancyfoot[C]{\textcolor{darkgray}{\small \thepage}}
+\renewcommand{\headrulewidth}{0.3pt}
+\setstretch{1.1}
+
+\begin{document}
+
+% ======================== EN-TÊTE ========================
+\begin{center}
+{\Large\bfseries\color{primary} Résumé Hebdomadaire de Stage}\\[0.3cm]
+{\large Semaine du 16 juin 2026}\\[0.15cm]
+{\normalsize SEBTI Douae — Stagiaire ALTEN Labs}\\[0.1cm]
+{\small\color{darkgray} Encadrant~: Nicolas Baudesson \quad|\quad Tuteur académique~: Samuel Dupont}
+\end{center}
+\vspace{0.4cm}
+\hrule
+\vspace{0.5cm}
+
+% ======================== SECTION 1 ========================
+\section{Actions réalisées cette semaine}
+
+\subsection{Démonstration de téléopération 5G — Protova2}
+
+La démo de téléopération complète via réseau 5G a été finalisée et validée sur
+\textbf{Protova2}. Le système fonctionne avec deux dongles 5G Quectel RM530N-GL
+(un côté véhicule, un côté PC opérateur), reliés via un APN privé opérateur
+(sous-réseau \texttt{172.16.48.0/28}).
+
+\textbf{Procédure de lancement de la démo~:}
+\begin{lstlisting}[language=bash]
+# Côté véhicule (Jetson Nano) :
+./launch_car.sh     # configure 5G, demarre Zenoh + nodes ROS2
+
+# Côté PC opérateur :
+./launch_pc.sh      # configure 5G, demarre Zenoh hub + joy_node + G29
+\end{lstlisting}
+
+Le bridge Zenoh s'établit automatiquement entre les deux routeurs via le lien 5G.
+Une fois lancé, le pilote peut conduire la voiture RC en temps réel avec le volant
+G29, visualiser le flux caméra et superviser les topics ROS2 depuis \texttt{rqt}.
+
+\begin{tcolorbox}[colback=lightgreen, colframe=success, left=4pt, right=4pt,
+  top=3pt, bottom=3pt]
+\textbf{Performances validées~:} latence ICMP $\approx$ 23--30 ms, débit 5G
+disponible 635 Mbps, perte paquets $< 1$\%.
+\end{tcolorbox}
+
+\subsection{Téléopération G29 avec retour de force (\textit{force feedback})}
+
+\begin{minipage}[t]{0.62\textwidth}
+Le volant Logitech G29 a été intégré avec son \textbf{retour de force} (\textit{force
+feedback}) actif pendant la téléopération. Le node \texttt{ros\_g29\_force\_feedback}
+reçoit les données du LiDAR (distance frontale) et applique une résistance croissante
+sur le volant à mesure que la voiture s'approche d'un obstacle.
+
+\textbf{Rôle du force feedback~:} donner au pilote une sensation haptique de la
+situation du véhicule sans qu'il ait besoin de regarder en permanence les
+données numériques. Plus l'obstacle est proche, plus le volant résiste —
+rendant la conduite à distance plus intuitive et sécurisée, notamment en condition
+de latence réseau.
+
+La téléopération PS4 (manette Bluetooth blanche) a également été maintenue en
+fonctionnement comme \textbf{alternative sans fil}.
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.35\textwidth}
+\vspace{-4pt}
+\begin{center}
+\includegraphics[width=\linewidth]{img_g29.jpg}
+\captionof{figure}{Volant G29 + pédalier — poste de pilotage ALTEN Labs}
+\end{center}
+\end{minipage}
+
+\subsection{Visualisation rqt — topics ROS2 actifs pendant la démo}
+
+La figure ci-dessous montre une capture \texttt{rqt} effectuée pendant une session
+de téléopération 5G fonctionnelle~: le flux vidéo de la caméra Orbbec Femto Bolt
+(RGB-D embarquée sur Protova2) est reçu en direct sur le PC opérateur, et tous les
+topics ROS2 sont actifs à travers le bridge Zenoh~: \texttt{/cmd\_vel\_G29},
+\texttt{/joy}, \texttt{/camera/color/image\_raw}, \texttt{/ticks},
+\texttt{/velocity}, \texttt{/cmd\_vel\_aeb}, etc.
+
+\begin{center}
+\includegraphics[width=0.92\textwidth]{img_rqt.png}
+\captionof{figure}{Capture \texttt{rqt} — démo 5G en cours~: flux caméra reçu sur PC + liste des topics ROS2 actifs via Zenoh}
+\end{center}
+
+\subsection{Présentation des deux prototypes}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[b]{0.47\textwidth}
+  \includegraphics[width=\linewidth]{img_protova1.jpg}
+  \caption{Protova1 — reconstruction depuis zéro (châssis jaune, Raspberry Pi Pico RP2040 visible, phase d'intégration)}
+\end{minipage}
+\hfill
+\begin{minipage}[b]{0.47\textwidth}
+  \includegraphics[width=\linewidth]{img_protova2.jpg}
+  \caption{Protova2 — plateforme complète (châssis rouge, Jetson Nano, caméra Orbbec, antennes 5G, Seeed Studio)}
+\end{minipage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[b]{0.47\textwidth}
+  \includegraphics[width=\linewidth]{img_ps4.jpg}
+  \caption{Manette PS4 — téléopération Bluetooth (source secondaire, priorité 60 dans twist\_mux)}
+\end{minipage}
+\hfill
+\begin{minipage}[b]{0.47\textwidth}
+  \vspace{10pt}
+  \begin{tcolorbox}[colback=lightblue, colframe=primary, left=5pt, right=5pt,
+    top=5pt, bottom=5pt]
+  \textbf{Arbitrage multi-sources}\\[4pt]
+  \small
+  Le node \texttt{twist\_mux} arbitre en temps réel entre~:\\[3pt]
+  \begin{tabular}{lll}
+  AEB sécurité & priorité 255 & (urgence) \\
+  PS4 Bluetooth & priorité 60  & \\
+  G29 USB       & priorité 30  & \\
+  \end{tabular}\\[4pt]
+  La priorité maximale de l'AEB garantit que le freinage d'urgence prévaut toujours sur le pilote.
+  \end{tcolorbox}
+\end{minipage}
+\end{figure}
+
+
+% ======================== SECTION 2 ========================
+\section{Perspectives — Semaine du 23 juin 2026}
+
+\subsection{Création de la démo WiFi}
+
+Prochaine étape~: recréer la même démo de téléopération en \textbf{WiFi}, en
+parallèle de la démo 5G existante. Les objectifs~:
+
+\begin{enumerate}[noitemsep, leftmargin=1.5cm]
+  \item Rédiger un \texttt{launch\_car\_wifi.sh} et \texttt{launch\_pc\_wifi.sh}
+        adaptés à la connexion WiFi — ROS2 DDS natif (sans Zenoh), adresses IP du réseau local.
+  \item \textbf{Corriger le bug rqt en SSH WiFi}~: actuellement, lancer
+        \texttt{rqt} depuis une session SSH ouverte en WiFi génère des erreurs
+        (variables \texttt{DISPLAY}/\texttt{XAUTHORITY} non exportées dans le
+        contexte SSH). Objectif~: tunnel X11 ou affichage local fonctionnel.
+  \item Valider que la démonstration fonctionne de bout en bout en WiFi~:
+        G29 téléop + flux caméra + topics actifs dans rqt.
+\end{enumerate}
+
+\subsection{Scripts de monitoring WiFi}
+
+Développement de deux nouveaux scripts analogues à ceux de la 5G~:
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}lXl@{}}
+\toprule
+\textbf{Script} & \textbf{Rôle} & \textbf{Port} \\
+\midrule
+\texttt{monitor\_wifi.py} & Monitoring passif~: latence ICMP, débit RX/TX sur interface WiFi, perte paquets, CPU & 8090 \\
+\texttt{bench\_wifi\_live.py} & Benchmark actif~: tests iperf3 périodiques UL+DL en WiFi, graphes temps réel & 8091 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\textbf{Note~:} en WiFi, le DDS natif de ROS2 (multicast UDP) fonctionne
+directement sur le réseau local — \textbf{Zenoh n'est pas utilisé}. La démo WiFi
+repose sur du ROS2 standard, sans bridge supplémentaire. Zenoh est spécifique à la
+démo 5G car le multicast DDS ne traverse pas les réseaux cellulaires.
+
+\subsection{Démonstration comparative 5G vs WiFi}
+
+L'objectif final de la semaine est de pouvoir \textbf{passer rapidement de la démo
+5G à la démo WiFi devant des clients}, sans manipulation longue. Un script de
+bascule rapide sera développé.
+
+\begin{tcolorbox}[colback=lightorange, colframe=warning, left=4pt, right=4pt,
+  top=3pt, bottom=3pt]
+\textbf{Note sur la comparaison 5G / WiFi~:}
+La directrice souhaite mettre en avant \textbf{l'avantage de la 5G sur le WiFi},
+notamment en termes de latence et de robustesse du lien. Les scripts
+\texttt{monitor\_wifi.py} et \texttt{bench\_wifi\_live.py} permettront d'afficher
+côte à côte les métriques des deux réseaux. En conditions réelles de démo
+(environnement d'entreprise chargé en interférences WiFi), la 5G sur APN privé
+présentera un avantage significatif en latence et stabilité.
+\end{tcolorbox}
+
+\subsection{Récapitulatif}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}Xcc@{}}
+\toprule
+\textbf{Tâche} & \textbf{Statut} & \textbf{Délai visé} \\
+\midrule
+Démo 5G complète (G29 + caméra + force feedback) & \textcolor{success}{\textbf{Terminé}} & Sem. 25 \\
+Correction bug rqt en SSH WiFi & En cours & Sem. 26 \\
+Démo WiFi (launch files + validation) & Planifié & Sem. 26 \\
+\texttt{monitor\_wifi.py} + \texttt{bench\_wifi\_live.py} & Planifié & Sem. 26 \\
+Script de bascule 5G ↔ WiFi & Planifié & Sem. 26 \\
+Visio de suivi (avant mi-juillet) & À organiser & avant 15 juil. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\vspace{0.6cm}
+\hrule
+\vspace{0.3cm}
+{\small\color{darkgray}
+SEBTI Douae — douaesebti.be@gmail.com — ALTEN Labs, Juin 2026
+}
+
+\end{document}

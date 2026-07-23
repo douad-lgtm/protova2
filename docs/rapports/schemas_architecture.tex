@@ -1,0 +1,290 @@
+\documentclass[a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[margin=1cm]{geometry}
+\usepackage{tikz}
+\usepackage{pdflscape}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{float}
+\usetikzlibrary{arrows.meta, positioning, calc, fit, shapes.geometric}
+
+% ── Couleurs de câblage (schéma électrique, fig. 2) ──────────────────
+\definecolor{wvcc}{HTML}{D32F2F}   % rouge  : VCC / +
+\definecolor{wgnd}{HTML}{212121}   % noir   : GND / -
+\definecolor{wpwm}{HTML}{F9A825}   % ambre  : signal PWM
+\definecolor{wdata}{HTML}{1565C0}  % bleu   : données (I2C / USB)
+
+% ── Styles « block diagram » noir & blanc (comme les schémas de ref.) ─
+\tikzset{
+  cont/.style   ={draw, dashed, thick, rounded corners=2pt},
+  hdr/.style    ={draw, fill=white, font=\footnotesize\bfseries,
+                  align=center, inner sep=4pt, minimum width=2.4cm},
+  box/.style    ={draw, fill=white, align=center,
+                  font=\scriptsize, inner sep=3pt, minimum height=0.7cm},
+  rbox/.style   ={draw, fill=white, align=left,
+                  font=\scriptsize, inner sep=4pt, text width=3.1cm},
+  proc/.style   ={draw, fill=white, align=center, font=\small,
+                  minimum width=2.7cm, minimum height=1.3cm},
+  photo/.style  ={draw, fill=gray!12, align=center,
+                  font=\tiny, minimum width=2.2cm, minimum height=1.5cm},
+  w/.style      ={-{Latex[length=1.6mm]}},
+  wb/.style     ={{Latex[length=1.6mm]}-{Latex[length=1.6mm]}},
+  dw/.style     ={-{Latex[length=1.6mm]}, dashed},
+  wlbl/.style   ={font=\scriptsize, fill=white, inner sep=1.5pt},
+  pin/.style    ={draw, fill=white, font=\tiny, inner sep=1.5pt,
+                  minimum height=0.34cm, minimum width=0.9cm},
+}
+
+% « ROS2 node » : en-tête souligné + puces (comme la ref.)
+\newcommand{\rnode}[1]{\underline{ROS2 node}\\[1pt]#1}
+
+\captionsetup{font=small, labelfont=bf}
+
+\begin{document}
+
+% ╔════════════════════════════════════════════════════════════════════╗
+% ║  FIGURE 1 — ARCHITECTURE LOGICIELLE / MATÉRIELLE                    ║
+% ╚════════════════════════════════════════════════════════════════════╝
+\begin{landscape}
+\thispagestyle{empty}
+\begin{figure}[H]
+\centering
+\caption{Architecture du système de téléopération — Protova2 (Seeedstudio Jetson Orin Nano, ROS2 Humble).
+\textit{Protova1 : même architecture sur Jetson Nano «~ancienne version~» / ROS2 Foxy.}}
+\vspace{2mm}
+
+\begin{tikzpicture}[x=1cm, y=1cm]
+
+% ===================== CONTENEUR : VOITURE ==========================
+\draw[cont] (0.2,0.6) rectangle (5.7,16.4);
+\node[font=\small\bfseries] at (2.95,16.0) {Car (YONCHER YC400)};
+
+\node[hdr] (sens) at (2.95,15.1) {Sensors};
+\node[box, minimum width=3.0cm] (cam)   at (2.95,14.1) {Camera\\(Orbbec Femto Bolt)};
+\node[box, minimum width=3.0cm] (lidar) at (2.95,12.9) {LiDAR\\(Slamtec RPLIDAR A1M8)};
+\node[box, minimum width=3.0cm] (imu)   at (2.95,11.7) {IMU\\(BNO086)};
+\node[box, minimum width=3.0cm] (enc)   at (2.95,10.4) {Encoder wheels +\\photoelectric sensors};
+
+\node[photo, minimum width=3.0cm, minimum height=2.0cm] (carpic) at (2.95,8.2)
+  {\textit{[ photo Protova ]}};
+
+\node[hdr] (act) at (2.95,6.1) {Actuators};
+\node[box, minimum width=3.0cm] (servo) at (2.95,5.1) {Servomotor};
+\node[box, minimum width=3.0cm] (esc)   at (2.95,3.9) {ESC\\(Electronic Speed Controller)};
+
+% ===================== CONTENEUR : JETSON ===========================
+\draw[cont] (6.5,0.6) rectangle (17.6,16.4);
+\node[font=\small\bfseries] at (12.05,16.0) {Seeedstudio Jetson Orin Nano — ROS2 Humble};
+
+% colonne gauche : noeuds de lecture capteurs
+\node[rbox] (n1) at (8.9,14.0) {\rnode{- Read camera\\- Publish the video stream topics}};
+\node[rbox] (n2) at (8.9,12.1) {\rnode{- Read LiDAR data\\- Publish the pointclouds and depth topics}};
+\node[rbox] (n3) at (8.9,10.2) {\rnode{- Read IMU data\\- Publish axis, acceleration and compass topics}};
+\node[rbox] (n4) at (8.9,8.2)  {\rnode{- Read photoelectric rising edges\\- Compute speed (ticks/sec) and publish}};
+
+% noeud manette (haut)
+\node[rbox] (nctrl) at (14.4,15.0) {\rnode{- Read controller data\\- Publish the inputs in a topic}};
+
+% chaîne de traitement (centre)
+\node[proc] (fusion)  at (12.6,12.0) {Sensor Data\\Fusion program};
+\node[proc] (decision)at (12.6,9.3)  {Decision\\making};
+\node[proc] (command) at (12.6,6.4)  {Command\\program};
+
+% photo carte + Pico
+\node[photo, minimum width=2.6cm, minimum height=1.7cm] (jetpic) at (12.6,3.9)
+  {\textit{[ carte Jetson Orin Nano ]}};
+\node[box, minimum width=2.8cm, minimum height=0.9cm] (pico) at (8.8,5.2)
+  {Raspberry Pi Pico\\RP2040};
+
+% ===================== CONTENEUR : PC LINUX =========================
+\draw[cont] (20.8,4.9) rectangle (25.5,11.7);
+\node[font=\small\bfseries] at (23.15,11.3) {Linux Computer};
+\node[rbox] (lc1) at (23.15,9.7) {\rnode{- Read camera topic\\- Live display of the camera view}};
+\node[rbox] (lc2) at (23.15,6.9) {\rnode{- Read steering wheel data\\- Publish the inputs in a topic}};
+
+% ===================== PÉRIPHÉRIQUES ================================
+\node[photo, minimum width=2.4cm, minimum height=1.4cm] (gc) at (22.6,14.9)
+  {Game Controller\\(PS4)};
+\node[photo, minimum width=2.2cm, minimum height=1.6cm] (sw) at (26.6,6.9)
+  {Steering wheel\\(Logitech G29)};
+
+% ===================== CONNEXIONS ===================================
+% capteurs -> noeuds
+\draw[w] (cam.east)   -- node[wlbl]{USB}  (n1.west);
+\draw[w] (lidar.east) -- node[wlbl]{USB}  (n2.west);
+\draw[w] (imu.east)   -- node[wlbl]{I2C}  (n3.west);
+\draw[w] (enc.east)   -- node[wlbl]{GPIO} (n4.west);
+
+% noeuds -> fusion
+\draw[w] (n1.east) -- (fusion.west);
+\draw[w] (n2.east) -- (fusion.west);
+\draw[w] (n3.east) -- (fusion.west);
+\draw[w] (n4.east) -- (fusion.south west);
+
+% chaîne de décision
+\draw[w] (fusion.south)   -- (decision.north);
+\draw[w] (decision.south) -- (command.north);
+
+% manette -> command
+\draw[w] (nctrl.south) -- ++(0,-0.4) -| (command.north east);
+
+% command -> Pico (ancien : I2C vers PCA9685  ->  USB Série vers Pico)
+\draw[w] (command.west) -- node[wlbl]{USB Série} (pico.east);
+
+% Pico -> actionneurs (PWM), traverse vers la voiture
+\draw[w] (pico.west) -- ++(-1.0,0) |- node[wlbl, pos=0.75]{PWM} (servo.east);
+\draw[w] (pico.west) -- ++(-1.0,0) |- node[wlbl, pos=0.75]{PWM} (esc.east);
+
+% manette -> noeud manette
+\draw[w] (gc.west) -- node[wlbl]{Bluetooth} (nctrl.east);
+
+% volant -> noeud volant
+\draw[w] (sw.west) -- node[wlbl]{USB} (lc2.east);
+
+% pont ROS via WiFi/5G (sans CARLA)
+\draw[dw] (lc1.west) -- ++(-1.2,0) |- node[wlbl, pos=0.25]{Bridge ROS via WiFi / 5G} (fusion.east);
+\draw[dw] (lc2.west) -- ++(-2.0,0) |- node[wlbl, pos=0.25]{Bridge ROS via WiFi / 5G} (command.east);
+
+% étiquette lien réseau
+\node[font=\small\bfseries] at (19.2,8.4) {WiFi / 5G};
+
+\end{tikzpicture}
+\end{figure}
+\end{landscape}
+
+% ╔════════════════════════════════════════════════════════════════════╗
+% ║  FIGURE 2 — SCHÉMA ÉLECTRIQUE / CÂBLAGE PWM                         ║
+% ╚════════════════════════════════════════════════════════════════════╝
+\begin{landscape}
+\thispagestyle{empty}
+\begin{figure}[H]
+\centering
+\caption{Schéma de câblage — pilotage des actionneurs via le \textbf{Raspberry Pi Pico RP2040}
+(en remplacement du PCA9685). Liaison Pico~$\leftrightarrow$~Jetson par \textbf{USB série}
+au lieu de l'I2C. Identique sur Protova1 (Jetson Nano) et Protova2 (Jetson Orin Nano).}
+\vspace{2mm}
+
+\begin{tikzpicture}[x=1cm, y=1cm]
+
+% ╔══════════════════ RASPBERRY PI PICO RP2040 (40 broches) ═════════╗
+% Corps de la puce
+\draw[thick, fill=white] (12.6,3.05) rectangle (15.4,11.95);
+\node[rotate=90, font=\bfseries] at (14.0,7.5) {Raspberry Pi Pico RP2040};
+% repère d'orientation (coin haut-gauche)
+\fill[black] (12.75,11.8) circle (0.06);
+% connecteur micro-USB (haut)
+\node[pin, minimum width=1.5cm, fill=gray!15] (usb) at (14.0,12.25) {\scriptsize micro-USB};
+
+% --- Broches GAUCHE : 1..20 (haut -> bas) ---------------------------
+\foreach [count=\i from 0] \n/\l/\c in {%
+  1/GP0/black, 2/GP1/black, 3/GND/gray, 4/GP2/black, 5/GP3/black,
+  6/GP4/wdata, 7/GP5/wdata, 8/GND/gray, 9/GP6/black, 10/GP7/black,
+  11/GP8/black, 12/GP9/black, 13/GND/gray, 14/GP10/black, 15/GP11/black,
+  16/GP12/black, 17/GP13/black, 18/GND/gray, 19/GP14/wgnd, 20/GP15/wpwm}{%
+  \node[pin, minimum width=0.55cm] (L\n) at (12.6, 11.5-\i*0.42) {\scriptsize\n};
+  \node[font=\tiny, text=\c, anchor=east, fill=white, inner sep=1pt]
+       at (12.28, 11.5-\i*0.42) {\l};
+}
+
+% --- Broches DROITE : 21..40 (bas -> haut) --------------------------
+\foreach [count=\i from 0] \n/\l/\c in {%
+  21/GP16/wpwm, 22/GP17/black, 23/GND/gray, 24/GP18/black, 25/GP19/black,
+  26/GP20/black, 27/GP21/black, 28/GND/gray, 29/GP22/black, 30/RUN/black,
+  31/{GP26 ADC0}/black, 32/{GP27 ADC1}/black, 33/{GND AGND}/gray, 34/{GP28 ADC2}/black, 35/ADC\_VREF/black,
+  36/3V3(OUT)/wvcc, 37/3V3\_EN/black, 38/GND/gray, 39/VSYS/wvcc, 40/VBUS/wvcc}{%
+  \node[pin, minimum width=0.55cm] (R\n) at (15.4, 3.52+\i*0.42) {\scriptsize\n};
+  \node[font=\tiny, text=\c, anchor=west, fill=white, inner sep=1pt]
+       at (15.72, 3.52+\i*0.42) {\l};
+}
+
+% ===================== JETSON (haut) ================================
+\node[draw, fill=white, align=center, font=\small,
+      minimum width=3.4cm, minimum height=1.9cm] (jetson) at (18.0,13.2)
+      {Seeedstudio\\Jetson Orin Nano\\\scriptsize(Protova1 : Jetson Nano «~old~»)};
+\node[pin, minimum width=1.0cm] (jusb) at (18.0,12.05) {USB};
+
+% Pico micro-USB -> Jetson USB (alimente + données)
+\draw[wdata, very thick, {Latex[length=1.6mm]}-{Latex[length=1.6mm]}]
+      (usb.north) -- ++(0,0.45) -| node[wlbl, pos=0.25]{USB série 115200 bauds} (jusb.north);
+
+% note alimentation 5V (VBUS/VSYS/3V3)
+\node[font=\scriptsize, align=left, anchor=west, text=wvcc] at (16.7,11.3)
+     {Alim. 5V via USB\\(VBUS/VSYS/3V3)};
+
+% ===================== CAPTEURS (gauche) ===========================
+% IMU sur I2C0 (GP4/GP5)
+\node[box, minimum width=2.4cm] (imu) at (7.6,9.2) {IMU BNO086\\(0x4B)};
+\draw[wdata, thick] (imu.east) -- node[wlbl]{I2C0 (SDA/SCL)} (11.55,9.2);
+\draw[wdata, thick] (11.55,9.2) -- (11.55,9.4);   % vers GP4 (pin 6)
+\draw[wdata, thick] (11.55,9.2) -- (11.55,8.98);  % vers GP5 (pin 7)
+
+% Encodeur sur GP14
+\node[box, minimum width=2.4cm] (enc) at (7.6,5.6) {Encodeur KY-040\\(quadrature)};
+\draw[wgnd, thick] (enc.east) -- node[wlbl, pos=0.55]{GP14} (11.55,3.94);
+
+% ===================== ACTIONNEURS =================================
+% --- SERVO (gauche-bas) ---
+\node[photo, minimum width=2.2cm, minimum height=1.3cm] (servo) at (7.4,3.4) {\textbf{SERVO}};
+\node[pin] (sv_pwm) at (8.9,3.9) {PWM};
+\node[pin] (sv_vcc) at (8.9,3.4) {VCC};
+\node[pin] (sv_gnd) at (8.9,2.9) {GND};
+% GP15 -> Servo PWM
+\draw[wpwm, thick] (sv_pwm.east) -- node[wlbl, pos=0.6]{GP15} (11.55,3.52);
+
+% --- ESC + moteur + batterie (droite-bas) ---
+\node[draw, fill=white, align=center, font=\small,
+      minimum width=2.3cm, minimum height=2.6cm] (esc) at (20.0,5.2)
+      {Electronic\\Speed\\Controller};
+\node[pin] (esc_sig) at (18.85,4.3) {PWM};
+\node[pin] (esc_vcc) at (20.0,6.7) {VCC};
+\node[pin] (esc_gnd) at (20.6,6.7) {GND};
+\node[pin] (esc_bvcc) at (19.6,3.9) {+5V};
+\node[pin] (esc_bgnd) at (20.4,3.9) {GND};
+
+% GP16 -> ESC PWM
+\draw[wpwm, thick] (R21.east) -- node[wlbl, pos=0.7]{GP16} (esc_sig.west);
+
+% DC motor -> ESC
+\node[font=\small] at (24.0,6.6) {DC motor};
+\node[draw, circle, minimum size=0.9cm, font=\large] (motor) at (24.0,5.6) {M};
+\draw[wpwm, thick]  (motor.west) -- ($(esc.east)+(0,0.4)$);
+\draw[wdata, thick] (motor.west) -- ($(esc.east)+(0,-0.4)$);
+
+% LIPO -> ESC (alim. puissance)
+\node[font=\small] at (22.4,9.0) {LIPO Battery};
+\node[draw, fill=white, minimum width=0.8cm, minimum height=1.2cm] (bat) at (20.3,8.7) {};
+\node[font=\scriptsize] at (20.3,9.1) {$+$};
+\node[font=\scriptsize] at (20.3,8.3) {$-$};
+\draw[wvcc, thick] (bat.south) ++(-0.15,0) -- (esc_vcc.north);
+\draw[wgnd, thick] (bat.south) ++(0.15,0)  -| (esc_gnd.north);
+
+% ===================== RAIL D'ALIMENTATION 5V (BEC ESC -> SERVO) ====
+\draw[wvcc, thick] (8.9,2.55) -- node[wlbl, pos=0.5]{+5V (BEC)} (19.6,2.55);
+\draw[wgnd, thick] (9.2,2.30) -- (20.4,2.30);
+% servo -> rails
+\draw[wvcc, thick] (sv_vcc.south) -- (8.9,2.55);
+\draw[wgnd, thick] (sv_gnd.south) -- (9.2,2.30);
+% ESC BEC -> rails
+\draw[wvcc, thick] (esc_bvcc.south) -- (19.6,2.55);
+\draw[wgnd, thick] (esc_bgnd.south) -- (20.4,2.30);
+
+% ===================== LÉGENDE ======================================
+\begin{scope}[shift={(0.3,13.5)}]
+  \node[font=\scriptsize\bfseries, anchor=west] at (-0.1,1.7) {Légende};
+  \draw[wpwm, thick] (0,1.2) -- (0.8,1.2);
+  \node[font=\scriptsize, anchor=west] at (0.9,1.2) {Signal PWM};
+  \draw[wvcc, thick] (0,0.7) -- (0.8,0.7);
+  \node[font=\scriptsize, anchor=west] at (0.9,0.7) {VCC / +5V};
+  \draw[wgnd, thick] (0,0.2) -- (0.8,0.2);
+  \node[font=\scriptsize, anchor=west] at (0.9,0.2) {GND / masse};
+  \draw[wdata, thick] (0,-0.3) -- (0.8,-0.3);
+  \node[font=\scriptsize, anchor=west] at (0.9,-0.3) {Données (USB / I2C)};
+\end{scope}
+
+\end{tikzpicture}
+\end{figure}
+\end{landscape}
+
+\end{document}

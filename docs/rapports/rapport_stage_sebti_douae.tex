@@ -1,0 +1,1067 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[headheight=15pt, top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tcolorbox}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usepackage{array}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, fit}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{accent}{HTML}{37474F}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{danger}{HTML}{B71C1C}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{lightgreen}{HTML}{E8F5E9}
+\definecolor{lightorange}{HTML}{FFF3E0}
+\definecolor{lightgray}{HTML}{F5F5F5}
+\definecolor{darkgray}{HTML}{424242}
+\definecolor{codebg}{HTML}{F8F8F8}
+\definecolor{codeframe}{HTML}{CCCCCC}
+\definecolor{nodecolor}{HTML}{BBDEFB}
+\definecolor{topiccolor}{HTML}{C8E6C9}
+\definecolor{hwcolor}{HTML}{FFE0B2}
+
+\tcbuselibrary{skins, breakable}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\scriptsize,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{codeframe},
+  xleftmargin=4pt, xrightmargin=4pt, framexleftmargin=4pt,
+  numbers=left, numberstyle=\tiny\color{darkgray},
+  keywordstyle=\color{primary}\bfseries,
+  commentstyle=\color{success}\itshape,
+  stringstyle=\color{warning},
+  showstringspaces=false,
+}
+
+\titleformat{\section}[block]
+  {\color{primary}\Large\bfseries}{\thesection.}{8pt}{}
+  [\vspace{2pt}\color{primary}\hrule\vspace{4pt}]
+
+\titleformat{\subsection}[block]
+  {\color{accent}\large\bfseries}{\thesubsection.}{6pt}{}
+
+\titleformat{\subsubsection}[block]
+  {\color{darkgray}\normalsize\bfseries}{\thesubsubsection.}{6pt}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{primary}{\textbf{Rapport de Stage} — Protova1 \& Protova2}}
+\fancyhead[R]{\textcolor{darkgray}{\small SEBTI Douae}}
+\fancyfoot[C]{\textcolor{darkgray}{\small \thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\setstretch{1.15}
+
+% ─────────────────────────────────────────────────────────────────
+\begin{document}
+
+% ======================== PAGE DE TITRE ========================
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{center}
+
+\rule{\textwidth}{0.5pt}\\[0.4cm]
+{\large\scshape Rapport de Stage de Fin d'Études}\\[0.2cm]
+\rule{\textwidth}{0.5pt}
+
+\vspace{2cm}
+
+{\LARGE\bfseries Développement de Deux Plateformes de}\\[0.3cm]
+{\LARGE\bfseries Véhicules RC Autonomes et Téléopérés}\\[0.6cm]
+{\Large\bfseries Protova1 \textnormal{—} de zéro à la téléopération}\\[0.2cm]
+{\Large\bfseries Protova2 \textnormal{—} démo de téléopération 5G}\\[0.4cm]
+\rule{0.6\textwidth}{0.3pt}\\[0.4cm]
+{\large Architecture, Implémentation, Problèmes et Perspectives}
+
+\vspace{2cm}
+
+\begin{tabular}{rl}
+\textit{Auteure}              & SEBTI Douae \\[0.3cm]
+\textit{Encadrant laboratoire} & Nicolas Baudesson \\[0.3cm]
+\textit{Tuteur école}          & Samuel Dupont \\[0.3cm]
+\textit{Durée du stage}        & Mars -- Juin 2026 (3 mois et 1 semaine) \\[0.3cm]
+\textit{Plateformes}           & Jetson Nano, Raspberry Pi Pico RP2040 \\[0.3cm]
+\textit{Environnement}         & ROS2 Foxy/Humble, FreeRTOS, Zenoh, 5G \\
+\end{tabular}
+
+\vspace{1.5cm}
+
+\begin{minipage}{0.88\textwidth}
+\small\itshape
+Ce rapport présente les travaux réalisés durant un stage de fin d'études portant
+simultanément sur deux plateformes de véhicules RC~: \textbf{Protova1}, reconstruite
+intégralement depuis zéro avec intégration progressive des capteurs (encodeur, IMU,
+LiDAR), et \textbf{Protova2}, plateforme de référence sur laquelle une démonstration de
+téléopération complète via réseau 5G a été réalisée. Le rapport couvre l'architecture
+matérielle et logicielle des deux systèmes, le détail des travaux chronologiques, les
+problèmes rencontrés et leurs solutions, ainsi que les perspectives d'autonomie et
+d'intégration 5G sur Protova1.
+\end{minipage}
+
+\vfill
+\rule{\textwidth}{0.5pt}\\[0.3cm]
+{\small Juin 2026}\\
+\rule{\textwidth}{0.5pt}
+\end{center}
+\end{titlepage}
+
+% ======================== RÉSUMÉ ========================
+\newpage
+\begin{tcolorbox}[colback=lightblue, colframe=primary, title={\textbf{Résumé}}]
+Ce stage de 3 mois et 1 semaine a porté sur deux prototypes de véhicules RC autonomes
+développés en parallèle au laboratoire. \textbf{Protova1} a été reconstruite de zéro~:
+architecture Jetson Nano / Raspberry Pi Pico RP2040, pile ROS2 Foxy, FreeRTOS, téléopération
+PS4 et G29, odométrie Ackermann, IMU BNO086, filtre anti-rebond hardware pour l'encodeur, et
+arbitrage multi-sources via \texttt{twist\_mux}. \textbf{Protova2}, plateforme de référence déjà
+opérationnelle, a fait l'objet d'une démonstration complète de téléopération via réseau 5G~:
+intégration du dongle Quectel RM530N-GL, configuration réseau sur les deux extrémités (PC
+opérateur et Jetson embarqué), middleware Zenoh pour traverser le réseau cellulaire, et
+tableau de bord de monitoring en temps réel. Les performances mesurées atteignent 635~Mbps
+en téléchargement et 70~Mbps en upload avec une latence inférieure à 30~ms. Lorsque
+Protova1 sera complète, l'intégration 5G sera directement héritée de Protova2 — l'architecture
+étant identique.
+\end{tcolorbox}
+
+\tableofcontents
+\newpage
+
+% =====================================================================
+%                    1. INTRODUCTION
+% =====================================================================
+\section{Introduction}
+
+\subsection{Contexte du projet}
+
+Le projet \textbf{Protova} (Prototype de Véhicule Autonome) s'inscrit dans le cadre
+de la recherche sur les véhicules autonomes à échelle réduite. Ces plateformes RC
+constituent des outils pédagogiques et expérimentaux permettant de valider des
+algorithmes de perception, de contrôle et de communication véhiculaire dans un
+environnement maîtrisé.
+
+Le stage s'est organisé autour de \textbf{deux plateformes distinctes travaillées
+en parallèle}~:
+
+\begin{itemize}
+  \item \textbf{Protova1}~: nouveau prototype à construire intégralement depuis zéro,
+        matériel neuf, logiciel à développer, capteurs à intégrer un par un.
+  \item \textbf{Protova2}~: plateforme de référence déjà opérationnelle, sur laquelle
+        la mission principale était de réaliser et valider la démonstration de
+        téléopération complète via réseau 5G.
+\end{itemize}
+
+\subsection{Objectifs}
+
+\begin{enumerate}[noitemsep]
+  \item Reproduire sur Protova1 les fonctionnalités de Protova2~: téléopération
+        multi-sources, odométrie, LiDAR, freinage automatique (AEB).
+  \item Réaliser sur Protova2 la démo de téléopération 5G complète (dongle,
+        réseau, Zenoh, monitoring).
+  \item Préparer l'intégration 5G sur Protova1 — une fois celle-ci complète, le
+        bridge Zenoh de Protova2 sera directement réutilisé.
+\end{enumerate}
+
+\subsection{Planning général}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}cXcc@{}}
+\toprule
+\textbf{Période} & \textbf{Travaux principaux} & \textbf{Prototype} & \textbf{Statut} \\
+\midrule
+Mois 1 & Architecture + Téléopération PS4 & Protova1 & \textcolor{success}{\textbf{Terminé}} \\
+Mois 1 & Étude Protova2 + config réseau 5G & Protova2 & \textcolor{success}{\textbf{Terminé}} \\
+Mois 2 & Odométrie + IMU + FreeRTOS & Protova1 & \textcolor{success}{\textbf{Terminé}} \\
+Mois 2 & Zenoh + launch scripts + watchdog & Protova2 & \textcolor{success}{\textbf{Terminé}} \\
+Mois 3 & G29 + twist\_mux + filtre encodeur & Protova1 & \textcolor{success}{\textbf{Terminé}} \\
+Mois 3 & Démo 5G complète + monitoring & Protova2 & \textcolor{success}{\textbf{Terminé}} \\
+Semaine+1 & LiDAR + AEB (Protova1) & Protova1 & \textcolor{warning}{\textbf{En cours}} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+
+% =====================================================================
+%                  2. PRÉSENTATION DES PLATEFORMES
+% =====================================================================
+\newpage
+\section{Présentation des deux plateformes}
+
+\subsection{Protova2 — Plateforme de référence}
+
+Protova2 est un véhicule RC téléopéré opérationnel, équipé~:
+\begin{itemize}[noitemsep]
+  \item d'un \textbf{Jetson Nano} exécutant ROS2 Humble
+  \item d'un \textbf{volant Logitech G29} avec retour de force (force feedback)
+  \item d'un \textbf{LiDAR RPLidar} pour la détection d'obstacles
+  \item d'une \textbf{caméra Orbbec Femto Bolt} (RGB-D)
+  \item d'un \textbf{dongle 5G Quectel RM530N-GL} pour la communication longue portée
+  \item d'un node \textbf{AEB} (Autonomous Emergency Braking) pour la sécurité
+\end{itemize}
+
+\subsection{Protova1 — Nouvelle plateforme construite de zéro}
+
+Protova1 est construite sur le même modèle de châssis RC mais avec un matériel
+entièrement neuf. Elle intègre~:
+\begin{itemize}[noitemsep]
+  \item un \textbf{Jetson Nano} (Ubuntu 22, ROS2 Foxy)
+  \item un \textbf{Raspberry Pi Pico RP2040} (microcontrôleur FreeRTOS)
+  \item un \textbf{encodeur KY-040} avec circuit de filtrage hardware
+  \item une \textbf{centrale inertielle BNO086} (I2C)
+  \item un \textbf{servo de direction} et un \textbf{ESC} (Electronic Speed Controller)
+  \item une téléopération double-source~: \textbf{manette PS4} (Bluetooth) et
+        \textbf{volant G29} (USB)
+\end{itemize}
+
+\begin{tcolorbox}[colback=lightgreen, colframe=success,
+  title={\textbf{Lien entre les deux plateformes}}]
+L'architecture logicielle de Protova1 est directement inspirée de Protova2.
+Lorsque Protova1 sera complète (LiDAR + AEB), l'intégration 5G via Zenoh sera
+\textbf{immédiatement réutilisable} depuis Protova2 sans développement supplémentaire —
+les stacks ROS2, les topics et les launch scripts sont identiques.
+\end{tcolorbox}
+
+
+% =====================================================================
+%              3. ARCHITECTURE PROTOVA1
+% =====================================================================
+\newpage
+\section{Architecture de Protova1}
+
+\subsection{Vue d'ensemble}
+
+Protova1 repose sur une architecture à deux niveaux reliés par liaison série USB~:
+
+\begin{center}
+\begin{tikzpicture}[
+  node distance=1.2cm and 2cm,
+  box/.style={draw, rounded corners, minimum width=3cm, minimum height=0.85cm,
+              font=\small, align=center},
+  hw/.style={box, fill=hwcolor},
+  sw/.style={box, fill=nodecolor},
+  arr/.style={-{Stealth[length=2.5mm]}, thick},
+]
+\node[draw, dashed, fill=lightblue!20, minimum width=15cm, minimum height=7cm,
+      rounded corners, label={[font=\bfseries\large]above:Jetson Nano — ROS2 Foxy}]
+      (jetson) at (0,0) {};
+
+\node[sw] (joy)  at (-5.5,  1.5) {joy\_node};
+\node[sw] (ps4)  at (-2.5,  2.3) {ps4\_teleop};
+\node[sw] (g29)  at (-2.5,  0.7) {G29Teleop};
+\node[sw] (mux)  at ( 1.0,  1.5) {twist\_mux};
+\node[sw] (tx)   at ( 4.5,  1.5) {TX};
+\node[sw] (odom) at ( 1.0, -1.8) {ackermann\_odom};
+
+\draw[arr] (joy) -- node[above,font=\tiny]{/joy} (ps4);
+\draw[arr] (joy) -- node[below,font=\tiny]{/joy} (g29);
+\draw[arr] (ps4) -- node[above,font=\tiny]{/cmd\_vel\_ps4} (mux);
+\draw[arr] (g29) -- node[below,font=\tiny]{/cmd\_vel\_G29} (mux);
+\draw[arr] (mux) -- node[above,font=\tiny]{/cmd\_vel} (tx);
+\draw[arr, primary] (tx) |- node[right,font=\tiny,pos=0.3]{/velocity} (odom);
+
+\node[hw] (pico) at (4.5, -2.5) {Pico RP2040\\FreeRTOS};
+\draw[arr, warning, <->] (tx) -- node[right,font=\tiny]{Série USB 115200} (pico);
+\end{tikzpicture}
+\end{center}
+
+\subsection{Niveau haut — Jetson Nano (ROS2 Foxy)}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Node} & \textbf{Fichier} & \textbf{Rôle} & \textbf{Statut} \\
+\midrule
+joy\_node & (package \texttt{joy}) & Lecture joystick USB/BT & \textcolor{success}{Terminé} \\
+ps4\_teleop & ps4\_teleop.py & Mapping manette PS4 & \textcolor{success}{Terminé} \\
+G29Teleop & G29Teleop.py & Mapping volant G29 + pédales & \textcolor{success}{Terminé} \\
+twist\_mux & (ext.) & Arbitrage multi-sources & \textcolor{success}{Terminé} \\
+TX & TX.py & Pont série bidirectionnel & \textcolor{success}{Terminé} \\
+ackermann\_odom & ackermann\_odom.py & Odométrie Ackermann & \textcolor{success}{Terminé} \\
+AEB & AEB.py & Freinage d'urgence automatique & \textcolor{warning}{Planifié} \\
+dist\_min & dist\_min.py & Distance obstacle LiDAR & \textcolor{warning}{Planifié} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Niveau bas — Raspberry Pi Pico RP2040 (FreeRTOS)}
+
+La migration vers FreeRTOS (depuis MicroPython) a été une décision technique majeure
+pour garantir la déterminisme du contrôle temps réel.
+
+\begin{center}
+\begin{tabular}{lllll}
+\toprule
+\textbf{Tâche} & \textbf{Rôle} & \textbf{Priorité} & \textbf{Période} & \textbf{Trame} \\
+\midrule
+TaskSerialRX & Réception commandes & Haute & Événement & \texttt{CTRL,angle,throttle} \\
+TaskControl  & PWM servo + ESC     & Haute & 20 ms & — \\
+TaskEncoder  & Comptage ticks encodeur & Normale & 20 ms & \texttt{TICKS,N} \\
+TaskIMU      & Lecture BNO086 & Normale & 50 ms & \texttt{IMU,qw,qx,qy,qz,yaw} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Brochage matériel}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{GPIO} & \textbf{Périphérique} & \textbf{Signal} & \textbf{Protocole} \\
+\midrule
+GP2  & Encodeur KY-040 & CLK (via 74HC14) & Interruption FALLING \\
+GP3  & Encodeur KY-040 & DT (via 74HC14)  & Interruption \\
+GP4  & IMU BNO086      & SDA              & I2C0 (adresse 0x4B) \\
+GP5  & IMU BNO086      & SCL              & I2C0 \\
+GP15 & Servo direction & Signal PWM       & PWM 50 Hz \\
+GP16 & ESC moteur      & Signal PWM       & PWM 50 Hz \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Protocole de communication série}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Direction} & \textbf{Format} & \textbf{Exemple} \\
+\midrule
+Jetson → Pico & \texttt{CTRL,<angle>,<throttle>} & \texttt{CTRL,83,0.15} \\
+Pico → Jetson & \texttt{TICKS,<delta>}            & \texttt{TICKS,3} \\
+Pico → Jetson & \texttt{IMU,<qw>,<qx>,<qy>,<qz>,<yaw>} & \texttt{IMU,0.998,0.001,-0.003,0.052,6.0} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Modèle cinématique Ackermann}
+
+Le node \texttt{ackermann\_odom} implémente le modèle bicyclette pour estimer la
+position $(x, y, \theta)$ du véhicule. La vitesse de lacet est~:
+
+\begin{equation}
+  \omega = \frac{v \cdot \tan(\delta)}{L}
+\end{equation}
+
+avec $v$ la vitesse linéaire (issue de l'encodeur), $\delta$ l'angle de braquage et
+$L = 0{,}245\ \text{m}$ l'empattement. L'intégration Euler à 50 Hz~:
+
+\begin{align}
+  \theta_{k+1} &= \theta_k + \omega \cdot \Delta t \\
+  x_{k+1}      &= x_k + v \cdot \cos(\theta_k) \cdot \Delta t \\
+  y_{k+1}      &= y_k + v \cdot \sin(\theta_k) \cdot \Delta t
+\end{align}
+
+La vitesse linéaire est calculée par le node TX à chaque trame encodeur~:
+
+\begin{equation}
+  v = \frac{N \times d_{\text{tick}}}{\Delta t}, \qquad
+  d_{\text{tick}} = \frac{\pi \times D}{\text{ticks\_per\_rev} / \text{gear\_ratio}}
+  = \frac{\pi \times 0{,}104}{49 / 0{,}902} = 6{,}01\ \text{mm/tick}
+\end{equation}
+
+\subsection{Arbitrage multi-sources — twist\_mux}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Source} & \textbf{Topic} & \textbf{Priorité} & \textbf{Timeout} \\
+\midrule
+AEB (sécurité) & /cmd\_vel\_aeb & 255 (maximale) & 5,0 s \\
+PS4 Bluetooth  & /cmd\_vel\_ps4 & 60 & 0,5 s \\
+G29 USB        & /cmd\_vel\_G29 & 30 & 0,5 s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La priorité 255 de l'AEB garantit que le freinage d'urgence prévaut toujours sur
+l'opérateur.
+
+\subsection{Paramètres physiques calibrés}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Paramètre} & \textbf{Valeur} & \textbf{Méthode} \\
+\midrule
+Empattement               & 0,245 m  & Mesure directe \\
+Diamètre roue             & 0,104 m  & Mesure directe \\
+Ticks par tour            & 49       & Calibration Arduino \\
+Rapport d'engrenage       & 0,902    & $15{,}7 / 17{,}4$ \\
+Centre servo              & 83°      & Calibré sur sol plat \\
+Amplitude servo           & 55°      & Mesure \\
+Angle max braquage        & 0,5 rad (${\approx}28{,}6°$) & Mesure \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% =====================================================================
+%              4. ARCHITECTURE PROTOVA2 — DÉMO 5G
+% =====================================================================
+\newpage
+\section{Architecture de Protova2 — Démonstration 5G}
+
+\subsection{Vue d'ensemble}
+
+Protova2 est la plateforme de référence sur laquelle la démonstration de
+téléopération 5G a été réalisée. Le système met en relation~:
+
+\begin{center}
+\begin{tikzpicture}[
+  node distance=2cm and 3cm,
+  box/.style={draw, rounded corners, minimum width=3.5cm, minimum height=1cm,
+              font=\small, align=center},
+  arr/.style={-{Stealth[length=3mm]}, very thick},
+]
+  \node[box, fill=nodecolor] (pc)    {PC Opérateur\\G29 + ROS2 Humble\\172.16.48.7};
+  \node[box, fill=hwcolor,   right=5cm of pc] (car)
+        {Jetson Nano (Voiture)\\ROS2 Humble\\172.16.48.6};
+  \node[box, fill=lightblue, below=1.5cm of pc]  (dpc)  {Dongle 5G\\Quectel RM530N-GL};
+  \node[box, fill=lightblue, below=1.5cm of car] (dcar) {Dongle 5G\\Quectel RM530N-GL};
+  \node[box, fill=lightgreen, below=1.5cm of dpc, xshift=3.5cm]
+        (zen) {Réseau 5G\\(Orange France)\\Zenoh bridge};
+
+  \draw[arr] (pc)  -- (dpc);
+  \draw[arr] (car) -- (dcar);
+  \draw[arr, <->] (dpc) -- node[above, font=\small\bfseries]{5G} (dcar);
+  \draw[arr, <->, dashed] (dpc)  -- (zen);
+  \draw[arr, <->, dashed] (dcar) -- (zen);
+\end{tikzpicture}
+\end{center}
+
+\subsection{Stack logiciel Protova2}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Composant} & \textbf{Rôle} & \textbf{Côté} \\
+\midrule
+ROS2 Humble + rmw\_zenoh\_cpp & Middleware DDS sur 5G & PC + Jetson \\
+Zenoh router & Pont réseau 5G (port 7447) & PC (routeur) \\
+G29 force feedback & Téléopération avec retour de force & PC \\
+twist\_mux & Arbitrage PS4/G29/AEB & Jetson \\
+TX.py / RX.py & Pont série Jetson ↔ actionneurs & Jetson \\
+AEB + dist\_min & Freinage d'urgence LiDAR & Jetson \\
+Orbbec Femto Bolt & Caméra RGB-D & Jetson \\
+RPLidar & Détection obstacles & Jetson \\
+monitor\_5g.py & Dashboard 5G temps réel (port 8088) & Jetson \\
+bench\_5g\_live.py & Benchmark actif iperf3 (port 8089) & Jetson \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Configuration réseau 5G}
+
+Le dongle Quectel RM530N-GL (USB, VID \texttt{2c7c:0801}, réseau NR Band 78 TDD,
+opérateur Bouygues Telecom France) est connecté aux deux machines.
+Il apparaît sous Linux avec le préfixe \texttt{enx} (Ethernet-over-USB) ou renommé
+\texttt{5g0} par une règle udev.
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Machine} & \textbf{Interface} & \textbf{Adresse IP} & \textbf{Rôle Zenoh} \\
+\midrule
+PC opérateur     & \texttt{5g0}       & 172.16.48.7/28  & Hub (routeur central) \\
+Jetson (voiture) & \texttt{5g0}       & 172.16.48.6/28  & Client (connect → PC) \\
+Passerelle modem & —                  & 172.16.48.5     & Gateway APN opérateur \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Renommage stable de l'interface — règle udev}
+
+Par défaut, le dongle reçoit un nom basé sur son adresse MAC
+(\texttt{enx66e352cb6c9c}) qui peut changer à chaque reconnexion USB.
+Une règle udev déployée par \texttt{setup\_5g.sh} fixe un nom stable \texttt{5g0}~:
+
+\begin{lstlisting}[language=bash]
+# /etc/udev/rules.d/70-quectel-5g.rules
+SUBSYSTEM=="net", ACTION=="add",
+    ATTRS{idVendor}=="2c7c", ATTRS{idProduct}=="0801",
+    NAME="5g0"
+\end{lstlisting}
+
+Le renommage prend effet après un redébranchement physique du dongle. Cette
+configuration n'est réalisée qu'une seule fois.
+
+\subsubsection{Bug /30 → /28 — adresse de broadcast}
+
+Le modem Quectel distribue l'IP via DHCP avec un masque \textbf{/30}. Or dans un
+bloc /30, les quatre adresses sont~:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Adresse} & \textbf{Rôle dans le /30} \\
+\midrule
+172.16.48.4 & Adresse réseau \\
+172.16.48.5 & Gateway (modem) \\
+172.16.48.6 & Jetson Nano (hôte) \\
+172.16.48.7 & \textbf{Adresse broadcast} $\leftarrow$ or c'est l'IP fixe du PC ! \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le noyau Linux refuse d'envoyer des paquets unicast vers l'adresse de broadcast.
+Tout ping vers le PC retournait \textit{«~Do you want to ping broadcast?~»}.
+La solution est d'élargir le masque à \textbf{/28} (broadcast = \texttt{.15})~:
+
+\begin{lstlisting}[language=bash]
+sudo ip addr del 172.16.48.6/30 brd 172.16.48.7 dev "$IFACE_5G"
+sudo ip addr add 172.16.48.6/28 brd 172.16.48.15 dev "$IFACE_5G"
+\end{lstlisting}
+
+Cette correction est intégrée dans \texttt{launch\_car.sh} et s'applique
+automatiquement à chaque démarrage.
+
+\subsection{Zenoh — bridge ROS2 sur réseau cellulaire}
+
+Zenoh remplace le DDS natif de ROS2 car ce dernier repose sur le multicast UDP,
+incompatible avec les réseaux cellulaires (pas de multicast sur la 5G).
+
+\subsubsection{Architecture hub-and-spoke}
+
+L'architecture adoptée est de type \textbf{étoile (hub-and-spoke) sur TCP}~:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Routeur PC} (\texttt{zenoh\_router\_pc.json5})~: écoute sur
+        \texttt{0.0.0.0:7447}, n'initie aucune connexion sortante.
+  \item \textbf{Routeur Jetson} (\texttt{zenoh\_router\_car.json5})~: écoute sur
+        \texttt{0.0.0.0:7447} et se connecte vers \texttt{tcp/172.16.48.7:7447}.
+        C'est le Jetson qui \textbf{ouvre la connexion TCP} à travers le lien 5G.
+  \item \textbf{Nodes ROS2}~: se connectent en mode \emph{client} à leur routeur
+        local (\texttt{127.0.0.1:7447}) via \texttt{zenoh\_session\_car.json5}.
+        Aucun node ne communique directement en 5G.
+\end{itemize}
+
+Configurations JSON5 utilisées~:
+
+\begin{lstlisting}[language=bash]
+// zenoh_router_pc.json5 -- hub central (PC)
+{ mode: "router",
+  listen:  { endpoints: ["tcp/0.0.0.0:7447"] },
+  scouting: { multicast: { enabled: false } } }
+
+// zenoh_router_car.json5 -- Jetson Nano
+{ mode: "router",
+  listen:  { endpoints: ["tcp/0.0.0.0:7447"] },
+  connect: { endpoints: ["tcp/172.16.48.7:7447"] },
+  scouting: { multicast: { enabled: false } } }
+
+// zenoh_session_car.json5 -- sessions ROS2 locales
+{ mode: "client",
+  connect: { endpoints: ["tcp/127.0.0.1:7447"] },
+  scouting: { multicast: { enabled: false } } }
+\end{lstlisting}
+
+\textbf{Vérification de l'appairage} (depuis le Jetson)~:
+\begin{lstlisting}[language=bash]
+ss -tn | grep 172.16.48.7:7447   # doit afficher ESTAB
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Variable d'environnement} & \textbf{Valeur} & \textbf{Rôle} \\
+\midrule
+\texttt{RMW\_IMPLEMENTATION} & \texttt{rmw\_zenoh\_cpp} & Active Zenoh \\
+\texttt{ROS\_DOMAIN\_ID}     & 125 & Isolation du domaine ROS \\
+\texttt{ZENOH\_SESSION\_CONFIG\_URI} & \texttt{\$HOME/zenoh\_session\_car.json5} & Config session \\
+\texttt{ZENOH\_ROUTER\_CONFIG\_URI}  & \texttt{\$HOME/zenoh\_router\_car.json5} & Config routeur \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Script de démarrage — launch\_car.sh}
+
+Le script \texttt{launch\_car.sh} orchestre le démarrage complet du côté voiture~:
+interface 5G, IP statique, watchdog réseau, routeur Zenoh, tous les nodes ROS2, et
+le dashboard de monitoring. Les étapes principales~:
+
+\begin{enumerate}[noitemsep]
+  \item Détection automatique du dongle 5G (udev ou VID Quectel \texttt{2c7c})
+  \item Attribution de l'IP statique \texttt{172.16.48.6/28}
+  \item Lancement du watchdog (réapplique la config si le dongle rebondit sur USB)
+  \item Démarrage du routeur Zenoh (\texttt{rmw\_zenohd})
+  \item Lancement des nodes~: \texttt{g29\_teleop}, \texttt{TX}, \texttt{RX},
+        \texttt{twist\_mux}, caméra Orbbec
+  \item Démarrage de \texttt{monitor\_5g.py} (dashboard web \texttt{:8088})
+\end{enumerate}
+
+\subsection{Procédure de diagnostic rapide}
+
+En cas de panne du lien, l'ordre de vérification recommandé~:
+
+\begin{enumerate}[noitemsep]
+  \item \texttt{ip -br addr show 5g0} — l'interface a-t-elle bien
+        \texttt{172.16.48.6/28} (et non /30) ?
+  \item \texttt{ping 172.16.48.7} — le lien IP est-il actif ?
+  \item \texttt{ss -tn | grep 172.16.48.7:7447} — les routeurs Zenoh sont-ils
+        appairés ? (panne la plus fréquente)
+  \item \texttt{ros2 topic info /cmd\_vel\_G29 -v} — nombre de publishers $> 0$ ?
+\end{enumerate}
+
+\subsection{Outils de monitoring développés}
+
+Deux scripts Python ont été développés pour monitorer le lien 5G~:
+
+\subsubsection{monitor\_5g.py — Monitoring passif temps réel}
+
+Tourne en permanence sur le Jetson, \textbf{sans générer de trafic}. Lit les compteurs
+sysfs du dongle (\texttt{/sys/class/net/<iface>/statistics/}) toutes les 0,5~s et
+sert un dashboard web sur le port 8088.
+
+\textbf{Métriques collectées}~: latence ICMP, RTT TCP Zenoh (via \texttt{ss}),
+débit RX/TX passif (Mbps), paquets/s, perte paquets, fréquence topics ROS,
+CPU Jetson, état Zenoh.
+
+\textbf{Formule du débit passif}~:
+\begin{equation}
+  D_{Mbps} = \frac{(B_k - B_{k-1}) \times 8}{\Delta t \times 10^6}
+\end{equation}
+
+\subsubsection{bench\_5g\_live.py — Benchmark actif iperf3}
+
+Effectue des tests \texttt{iperf3} périodiques (toutes les 30~s, 5~s par direction)
+pour mesurer la \textbf{capacité réelle} du lien 5G. Dashboard sur le port 8089 avec
+un bouton «~Tester maintenant~».
+
+\textbf{Métriques}~: débit TCP UL (Jetson→PC) et DL (PC→Jetson) en Mbps,
+latence ICMP continue, trafic passif.
+
+\begin{equation}
+  D_{iperf,Mbps} = \frac{\texttt{bits\_per\_second}}{10^6}
+  = \frac{8 \times \texttt{bytes\_transferred}}{D_{test} \times 10^6}
+\end{equation}
+
+\subsection{Performances mesurées}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Métrique} & \textbf{Valeur mesurée} & \textbf{Outil} \\
+\midrule
+Débit téléchargement (5G) & 635,52 Mbps & Speedtest.net \\
+Débit upload (5G)         & 70,25 Mbps  & Speedtest.net \\
+Latence ICMP (RTT)        & $\approx$ 23--30 ms & monitor\_5g.py \\
+Perte paquets             & $< 1\%$ & monitor\_5g.py \\
+Opérateur                 & Orange France (Lyon) & — \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+% =====================================================================
+%         5. PROBLÈMES RENCONTRÉS ET SOLUTIONS
+% =====================================================================
+\newpage
+\section{Problèmes rencontrés et solutions}
+
+Cette section recense les principaux obstacles techniques rencontrés et les solutions
+apportées, sur les deux plateformes.
+
+\subsection{Problèmes sur Protova1}
+
+\subsubsection{Migration MicroPython → FreeRTOS}
+
+\textbf{Problème~:} MicroPython sur le Pico ne permettait pas de gérer simultanément
+les interruptions d'encodeur (très haute fréquence), la lecture I2C de l'IMU et la
+communication série sans pertes.
+
+\textbf{Solution~:} Migration complète vers Arduino + FreeRTOS avec 4 tâches concurrentes
+et priorités définies. Le déterminisme temporel est garanti par les mécanismes de
+scheduling de FreeRTOS.
+
+\subsubsection{Rebonds de l'encodeur KY-040}
+
+\textbf{Problème~:} L'encodeur KY-040 produit des signaux parasites (rebonds) lors de
+chaque transition mécanique, causant un comptage erroné des ticks et une odométrie
+fausse.
+
+\textbf{Solution~:} Conception d'un circuit de filtrage hardware en deux étages~:
+\begin{enumerate}[noitemsep]
+  \item Filtre RC passe-bas ($\tau = R \times C = 0{,}1\ \text{ms}$) qui atténue les
+        transitoires haute fréquence.
+  \item Trigger de Schmitt 74HC14 qui restitue un signal carré propre grâce à
+        l'hystérésis de ses deux seuils de commutation.
+\end{enumerate}
+Le 74HC14 inversant le signal, l'interruption est configurée en \texttt{FALLING}
+au lieu de \texttt{RISING}.
+
+\subsubsection{Adresse I2C non standard de l'IMU BNO086}
+
+\textbf{Problème~:} Le BNO086 répond à l'adresse \texttt{0x4B} (broche ADR à +3V3)
+et non à l'adresse par défaut \texttt{0x28}, ce qui n'était pas documenté dans les
+exemples disponibles.
+
+\textbf{Solution~:} Identification de l'adresse par scan I2C sur le Pico
+(\texttt{i2c.scan()}), puis configuration explicite dans la bibliothèque BNO08x.
+
+\subsubsection{Saturation du volant G29}
+
+\textbf{Problème~:} Le G29 tourne sur 2,5 tours complets, mais la voiture RC ne
+nécessite qu'un quart de tour. Les 75\% restants étaient inutilisables.
+
+\textbf{Solution~:} Saturation logicielle dans \texttt{G29Teleop.py}~:
+\begin{equation}
+  \text{steer\_scaled} = \text{clamp}\!\left(\frac{\text{steer\_raw}}{0{,}33},\ -1,\ +1\right)
+\end{equation}
+À partir de 33\% de la course, les roues sont en butée — comportement identique à
+celui de Protova2.
+
+\subsection{Problèmes sur Protova2 — Réseau 5G}
+
+\subsubsection{Masque de sous-réseau /30 — PC injoignable}
+
+\textbf{Problème~:} Le modem Quectel, en mode ECM/NCM, distribue l'adresse IP
+via DHCP avec un masque \texttt{/30}. Dans un bloc /30, l'adresse
+\texttt{172.16.48.7} est l'adresse de \textbf{broadcast} — or c'est précisément
+l'IP fixe du PC opérateur. Tout ping ou connexion vers le PC retournait~:
+\begin{lstlisting}[language=bash]
+Do you want to ping broadcast? Then -b. Check your local firewall rules.
+\end{lstlisting}
+
+\textbf{Cause racine~:} L'APN opérateur utilise réellement un sous-réseau \texttt{/28}
+partagé entre les deux SIM. Le modem annonce cependant un \texttt{/30} au niveau
+du lien USB Ethernet, ce qui masque la portée réelle du réseau.
+
+\textbf{Solution~:} Réécrire le préfixe IP de \texttt{/30} à \texttt{/28} dans
+\texttt{launch\_car.sh}~:
+\begin{lstlisting}[language=bash]
+sudo ip addr del 172.16.48.6/30 brd 172.16.48.7 dev "$IFACE_5G" 2>/dev/null
+sudo ip addr add 172.16.48.6/28 brd 172.16.48.15 dev "$IFACE_5G"
+\end{lstlisting}
+Avec \texttt{/28}, l'adresse broadcast est \texttt{172.16.48.15}~: les adresses
+\texttt{.6} et \texttt{.7} deviennent deux hôtes unicast valides sur le même réseau.
+
+\subsubsection{Diagnostic modem par commandes AT}
+
+Lors de l'initialisation, le dongle ne répondait pas au DHCP après la mise sous
+tension. Un diagnostic via commandes AT (Python, \texttt{serial.Serial} 115200 bauds
+sur \texttt{/dev/ttyUSB3}) a permis d'identifier l'état du modem~:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Commande AT} & \textbf{Réponse} & \textbf{Interprétation} \\
+\midrule
+\texttt{AT+COPS?}   & Bouygues Telecom, 11 & Réseau NR (5G), enregistré \\
+\texttt{AT+CGPADDR} & 172.16.48.6          & Contexte PDP actif, IP assignée \\
+\texttt{AT+CSQ}     & 99,99                & Signal non disponible (ECM actif) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le modem avait bien une IP mais le pont USB Ethernet n'avait pas démarré son
+serveur DHCP. La réinitialisation douce a résolu le problème~:
+\begin{lstlisting}[language=python]
+s.write(b'AT+CFUN=1,1\r\n')   # reset logiciel du modem
+time.sleep(8)                   # attente redemarrage
+\end{lstlisting}
+Après reset, le noyau a détecté une nouvelle interface USB Ethernet et le DHCP
+a répondu normalement.
+
+\subsubsection{Route par défaut DHCP — Perte de connexion internet}
+
+\textbf{Problème~:} Le dongle 5G pousse via DHCP une route par défaut via
+\texttt{172.16.48.8} avec une métrique de 100, inférieure à celle du WiFi (600).
+Résultat~: tout le trafic internet passait par la 5G, ralentissant les deux.
+
+Le script \texttt{launch\_car.sh} tentait de supprimer cette route avec~:
+\begin{lstlisting}[language=bash]
+sudo ip route del default via 172.16.48.5   # ne fonctionnait pas : mauvaise IP
+\end{lstlisting}
+La commande échouait silencieusement car la gateway réelle était \texttt{172.16.48.8}.
+
+\textbf{Solution~:} Suppression par interface plutôt que par gateway~:
+\begin{lstlisting}[language=bash]
+sudo ip route del default dev "$IFACE_5G"   # fonctionne quelle que soit la gateway
+\end{lstlisting}
+
+\subsubsection{Dongle 5G qui se déconnecte de l'USB}
+
+\textbf{Problème~:} Le dongle Quectel rebondit occasionnellement sur le bus USB,
+perdant son adresse IP et coupant la liaison 5G sans préavis.
+
+\textbf{Solution~:} Mise en place d'un \textbf{watchdog réseau} dans
+\texttt{launch\_car.sh}, tournaant en fond en boucle toutes les 5~s~:
+\begin{lstlisting}[language=bash]
+while true; do
+    if ip link show 5g0 &>/dev/null && \
+       ! ip -4 addr show 5g0 | grep -q "172.16.48.6/28"; then
+        sudo ip link set 5g0 up
+        sudo ip addr add 172.16.48.6/28 brd 172.16.48.15 dev 5g0
+        echo "[watchdog] IP config reapplied"
+    fi
+    sleep 5
+done
+\end{lstlisting}
+
+\subsubsection{Variables d'environnement Zenoh incorrectes}
+
+\textbf{Problème~:} La documentation Zenoh indique \texttt{ZENOH\_CONFIG} mais
+\texttt{rmw\_zenoh\_cpp} (version ROS2 Humble) utilise en réalité
+\texttt{ZENOH\_SESSION\_CONFIG\_URI} et \texttt{ZENOH\_ROUTER\_CONFIG\_URI}.
+Les nodes démarraient sans config Zenoh et ne se connectaient pas.
+
+\textbf{Solution~:} Identification des bonnes variables dans le code source de
+\texttt{rmw\_zenoh\_cpp} et mise à jour de tous les scripts de lancement.
+
+\subsubsection{Fichiers de configuration Zenoh en doublon}
+
+\textbf{Problème~:} Des fichiers de configuration Zenoh existaient à plusieurs
+emplacements (\texttt{\textasciitilde/protova2/} et \texttt{\textasciitilde/}), avec
+des contenus contradictoires. Le fichier
+\texttt{\textasciitilde/protova2/zenoh\_session\_pc.json5} contenait en réalité
+une configuration de \textit{routeur} et non de \textit{session}.
+
+\textbf{Solution~:} Identification et documentation des fichiers actifs~:
+seuls \texttt{\textasciitilde/zenoh\_session\_car.json5} et
+\texttt{\textasciitilde/zenoh\_session\_pc.json5} (répertoire home) sont utilisés
+par les scripts. Les fichiers dans \texttt{\textasciitilde/protova2/} sont des
+artéfacts non utilisés.
+
+\subsubsection{Unités de mesure incorrectes dans monitor\_5g.py (kb/s vs Mbps)}
+
+\textbf{Problème 1~:} Le dashboard affichait le débit en kbit/s alors que le contexte
+(lien 5G, référence speedtest à 635 Mbps) nécessitait des Mbit/s.
+
+\textbf{Problème 2 (découlant de la correction)~:} En changeant l'unité de kb/s à
+Mbps, la formule Python devenait~:
+\begin{lstlisting}[language=python]
+rx = max(0, cur[0] - prev[0]) * 8 / dt / 1_000_000  # Mbps
+\end{lstlisting}
+Mais le stockage des échantillons utilisait \texttt{rnd(rx, 1)}, soit un arrondi à
+1 décimale. Le trafic normal (~0,022 Mbps) était arrondi à \texttt{0.0} — le
+dashboard affichait 0 en permanence.
+
+\textbf{Solution~:} Augmentation de la précision à 4 décimales~:
+\begin{lstlisting}[language=python]
+'rx': rnd(rx, 4), 'tx': rnd(tx, 4),   # 0.0220 Mbps = 22 kb/s resolu
+\end{lstlisting}
+Et ajout d'un auto-scaling JavaScript~: valeurs $< 1$ Mbps affichées en kb/s,
+valeurs $\geq 1$ Mbps en Mbps.
+
+\subsubsection{Piège SSH — coupure WiFi tue toute la pile}
+
+\textbf{Problème~:} Lors de la démo sans WiFi, \texttt{launch\_car.sh} tournait
+dans une session SSH ouverte via le WiFi. En coupant le WiFi pour basculer
+complètement sur la 5G, la session SSH se fermait brusquement — et le
+mécanisme \texttt{trap + wait} du script envoyait un signal de terminaison à tous
+les processus enfants (nodes ROS2, routeur Zenoh, watchdog). La pile entière
+s'arrêtait au moment précis où la démo devait commencer.
+
+\textbf{Solution~:} Relancer la pile depuis une \textbf{session SSH ouverte via
+l'IP 5G} (\texttt{ssh protova2@172.16.48.6}), en mode détaché de la session~:
+\begin{lstlisting}[language=bash]
+nohup ~/launch_car.sh > ~/launch_car.log 2>&1 & disown
+\end{lstlisting}
+Le processus \texttt{disown} détache le script du terminal SSH~: même si la
+connexion se ferme, la pile continue de tourner.
+
+\textbf{Procédure retenue pour la démo sans WiFi}~:
+\begin{enumerate}[noitemsep]
+  \item Démarrer les deux dongles + vérifier le ping 5G (WiFi encore actif)
+  \item Ouvrir une session SSH via l'IP 5G~: \texttt{ssh protova2@172.16.48.6}
+  \item Relancer la pile en mode détaché (commande ci-dessus)
+  \item Couper le WiFi sur le Jetson~: \texttt{sudo nmcli radio wifi off}
+  \item Couper le WiFi sur le PC~: \texttt{nmcli radio wifi off}
+  \item Vérifier~: \texttt{ss -tn | grep 7447} doit afficher \texttt{ESTAB}
+\end{enumerate}
+
+\subsubsection{Tests iperf3 silencieusement échoués}
+
+\textbf{Problème~:} Les tests iperf3 périodiques dans le dashboard retournaient
+systématiquement \texttt{None} sans message d'erreur visible. Le bouton
+«~Tester~» semblait ne rien faire.
+
+\textbf{Cause~:} \texttt{iperf3 -s} n'était pas lancé sur le PC opérateur. Le client
+iperf3 sur le Jetson échouait à se connecter, mais l'erreur était capturée
+silencieusement dans \texttt{last\_err} sans être affichée.
+
+\textbf{Solution~:} Affichage explicite des erreurs dans le dashboard
+(\texttt{iperf\_err} en rouge), documentation du prérequis~:
+\texttt{iperf3 -s} doit tourner sur le PC avant tout test.
+
+
+% =====================================================================
+%                    6. TRAVAUX RÉALISÉS
+% =====================================================================
+\newpage
+\section{Bilan des travaux réalisés}
+
+\subsection{Protova1 — État d'avancement}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}cXcc@{}}
+\toprule
+\textbf{Étape} & \textbf{Description} & \textbf{Statut} & \textbf{\%} \\
+\midrule
+1 & Migration MicroPython → FreeRTOS & \textcolor{success}{\textbf{Terminé}} & 100 \\
+2 & Architecture Jetson + Pico & \textcolor{success}{\textbf{Terminé}} & 100 \\
+3 & Téléopération PS4 Bluetooth & \textcolor{success}{\textbf{Terminé}} & 100 \\
+4 & Odométrie Ackermann + encodeur KY-040 & \textcolor{success}{\textbf{Terminé}} & 100 \\
+5 & IMU BNO086 (I2C + quaternions) & \textcolor{success}{\textbf{Terminé}} & 100 \\
+6 & Circuit filtre encodeur (RC + 74HC14) & \textcolor{success}{\textbf{Terminé}} & 100 \\
+7 & Téléopération G29 + pédales & \textcolor{success}{\textbf{Terminé}} & 100 \\
+8 & Arbitrage twist\_mux multi-sources & \textcolor{success}{\textbf{Terminé}} & 100 \\
+9 & LiDAR + détection obstacles & \textcolor{warning}{\textbf{En cours}} & 30 \\
+10 & AEB (freinage d'urgence) & \textcolor{warning}{\textbf{Planifié}} & 0 \\
+11 & 5G via Zenoh & \textit{Hérité de Protova2} & — \\
+\midrule
+\multicolumn{2}{l}{\textbf{Avancement global Protova1}} & \multicolumn{2}{c}{\textbf{85\%}} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Protova2 — Démo 5G}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}cXc@{}}
+\toprule
+\textbf{Étape} & \textbf{Description} & \textbf{Statut} \\
+\midrule
+1 & Étude architecture existante Protova2 & \textcolor{success}{\textbf{Terminé}} \\
+2 & Configuration dongle 5G (IP, masque /28) & \textcolor{success}{\textbf{Terminé}} \\
+3 & Configuration Zenoh (routeur PC, session Jetson) & \textcolor{success}{\textbf{Terminé}} \\
+4 & Script launch\_car.sh complet + watchdog & \textcolor{success}{\textbf{Terminé}} \\
+5 & Démo téléopération G29 via 5G fonctionnelle & \textcolor{success}{\textbf{Terminé}} \\
+6 & monitor\_5g.py (dashboard passif temps réel) & \textcolor{success}{\textbf{Terminé}} \\
+7 & bench\_5g\_live.py (benchmark actif iperf3) & \textcolor{success}{\textbf{Terminé}} \\
+8 & Validation performances 5G (635 Mbps / 30 ms) & \textcolor{success}{\textbf{Terminé}} \\
+\midrule
+\multicolumn{2}{l}{\textbf{Avancement global Protova2 5G}} & \textbf{100\%} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+
+% =====================================================================
+%                    7. PERSPECTIVES
+% =====================================================================
+\newpage
+\section{Perspectives}
+
+\subsection{Complétion de Protova1}
+
+Les prochaines étapes à court terme pour finaliser Protova1 sont~:
+
+\begin{enumerate}
+  \item \textbf{Intégration LiDAR RPLidar}~: lecture des données de scan, publication sur
+        \texttt{/scan} (sensor\_msgs/LaserScan).
+  \item \textbf{Node dist\_min}~: extraction de la distance minimale dans un cône frontal
+        de $\pm 10°$.
+  \item \textbf{Node AEB}~: calcul du TTC (Time To Collision) et injection d'une commande
+        d'arrêt sur \texttt{/cmd\_vel\_aeb} (priorité 255 dans twist\_mux)~:
+        \begin{equation}
+          \text{TTC} = \frac{d_{\text{front}}}{v}, \quad \text{si TTC} < 1{,}8\ \text{s}
+          \Rightarrow \text{freinage d'urgence}
+        \end{equation}
+  \item \textbf{Fusion IMU dans l'odométrie}~: remplacement du $\theta$ géométrique
+        par le yaw direct de l'IMU BNO086~:
+        \begin{equation}
+          \theta_{IMU} = \text{atan2}\!\left(2(q_w q_z + q_x q_y),\;
+          1 - 2(q_y^2 + q_z^2)\right)
+        \end{equation}
+\end{enumerate}
+
+\subsection{Intégration 5G sur Protova1}
+
+Une fois Protova1 complète, la communication 5G sera directement héritée de Protova2.
+Les éléments à transférer sont~:
+\begin{itemize}[noitemsep]
+  \item Le script \texttt{launch\_car.sh} (avec watchdog et config IP)
+  \item Les fichiers de configuration Zenoh (\texttt{zenoh\_session\_car.json5})
+  \item Les outils de monitoring (\texttt{monitor\_5g.py}, \texttt{bench\_5g\_live.py})
+\end{itemize}
+
+Aucun développement logiciel supplémentaire n'est nécessaire~: l'architecture
+ROS2 de Protova1 est identique à celle de Protova2.
+
+\subsection{Vers l'autonomie}
+
+À plus long terme, trois niveaux d'autonomie sont envisagés~:
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}cXcl@{}}
+\toprule
+\textbf{Niveau} & \textbf{Description} & \textbf{Technologies} & \textbf{Complexité} \\
+\midrule
+1 & Suivi de couloir LiDAR + PID & LiDAR + PID & Faible \\
+2 & Circuit défini par waypoints & Pure Pursuit + AEB & Moyenne \\
+3 & Navigation SLAM sans GPS & slam\_toolbox + Nav2 + EKF & Élevée \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+L'algorithme Pure Pursuit (niveau 2) calcule l'angle de braquage vers un point
+cible (lookahead point) à distance $L_d$~:
+\begin{equation}
+  \delta = \arctan\!\left(\frac{2 L \sin(\alpha)}{L_d}\right)
+\end{equation}
+
+où $\alpha$ est l'angle entre le cap du véhicule et le waypoint cible, et $L$
+l'empattement.
+
+
+% =====================================================================
+%                    8. CONCLUSION
+% =====================================================================
+\newpage
+\section{Conclusion}
+
+Ce stage de trois mois et une semaine a permis de mener de front deux projets
+complémentaires et exigeants sur le plan technique.
+
+Sur \textbf{Protova1}, les fondations techniques sont solidement établies~: architecture
+à deux niveaux (Jetson Nano / Raspberry Pi Pico), pile ROS2 Foxy complète, four
+tâches FreeRTOS, téléopération double-source (PS4 et G29), arbitrage multi-sources
+avec sécurité intégrée, odométrie Ackermann à 50~Hz, IMU BNO086, et circuit de
+filtrage hardware pour l'encodeur. La téléopération G29 et le twist\_mux sont
+pleinement opérationnels.
+
+Sur \textbf{Protova2}, la démonstration de téléopération via réseau 5G est complète
+et validée~: le lien Jetson ↔ PC opérateur fonctionne via les dongles Quectel
+RM530N-GL avec une latence inférieure à 30~ms et un débit disponible de 635~Mbps.
+Le middleware Zenoh permet à ROS2 de traverser le réseau cellulaire de manière
+transparente pour les applications. Deux outils de monitoring dédiés ont été
+développés~: \texttt{monitor\_5g.py} pour l'observation passive en temps réel, et
+\texttt{bench\_5g\_live.py} pour la mesure active de la capacité du lien.
+
+La modularité des architectures choisies — nodes ROS2 indépendants, topics
+standardisés, scripts de lancement paramétrables — garantit une réutilisation
+directe entre les deux plateformes. L'intégration 5G sur Protova1, dès que celle-ci
+sera complète, ne nécessitera aucun développement supplémentaire.
+
+\vspace{1cm}
+
+\begin{tcolorbox}[colback=lightblue, colframe=primary]
+\textbf{Résumé des contributions principales}
+\begin{itemize}[noitemsep]
+  \item Architecture complète et fonctionnelle de Protova1 (hardware + software)
+  \item Démonstration 5G opérationnelle sur Protova2
+  \item Deux outils de monitoring 5G (passif et actif)
+  \item Résolution de 7 problèmes techniques documentés
+  \item Base technique prête pour l'autonomie (LiDAR + AEB + navigation SLAM)
+\end{itemize}
+\end{tcolorbox}
+
+\end{document}

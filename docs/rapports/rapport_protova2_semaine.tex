@@ -1,0 +1,596 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{amssymb}
+\usepackage{pifont}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{danger}{HTML}{B71C1C}
+\definecolor{lightgreen}{HTML}{E8F5E9}
+\definecolor{lightorange}{HTML}{FFF3E0}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+
+\lstdefinestyle{sh}{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  numberstyle=\tiny\color{codegray},
+  breaklines=true,
+  frame=single,
+  showstringspaces=false,
+  tabsize=2,
+  columns=fullflexible,
+}
+\lstset{style=sh}
+
+\newcommand{\ok}{\textcolor{success}{\checkmark}}
+\newcommand{\ko}{\textcolor{danger}{\ding{55}}}
+
+% ── Images à placer dans le même dossier que ce .tex ──────────────────
+%   img_protova1.jpg → Protova1 (châssis jaune, Pico visible)
+%   img_protova2.jpg → Protova2 (châssis rouge, Jetson + caméra + antennes 5G)
+%   img_g29.jpg      → Volant G29 + pédalier sur support
+%   img_ps4.jpg      → Manette PS4 blanche
+%   img_rqt.png      → Capture rqt (flux caméra + liste topics)
+% ──────────────────────────────────────────────────────────────────────
+
+\title{\textbf{Rapport technique hebdomadaire --- ProtoVA2}\\[2mm]
+\large Démonstration WiFi, mise en service du LiDAR\\ et conduite autonome réactive}
+\author{Douae Sebti}
+\date{Semaine du 16 au 19 juin 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Ce rapport regroupe les travaux de la semaine sur le véhicule ProtoVA2
+(Jetson Orin Nano, ROS\,2 Humble), en vue de la conduite autonome. Quatre volets
+sont traités : (1) une démonstration de \textbf{téléopération sur WiFi} en DDS
+natif (sans Zenoh), accompagnée d'outils de \textbf{supervision et de benchmark}
+temps réel du lien réseau ; (2) la \textbf{conception d'un module de conduite autonome
+réactive} de type \emph{follow-the-gap}, intégré à l'arbitrage \texttt{twist\_mux}
+et validé hors matériel par un scan synthétique ; (3) la \textbf{mise en service
+du LiDAR}, présentée comme un journal de diagnostic incluant volontairement les
+tentatives infructueuses, jusqu'à la découverte et la réparation d'une panne
+matérielle, puis la visualisation du flux \texttt{/scan} dans RViz ; (4) un
+\textbf{premier essai de conduite réactive} (roues en l'air) validant la chaîne
+de bout en bout. L'environnement, les conventions, les scripts livrés et les
+prochaines étapes sont détaillés.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+% =====================================================================
+\section{Contexte et objectifs}
+Le ProtoVA2 fonctionne sous ROS\,2 Humble (\texttt{ROS\_DOMAIN\_ID=125}). La
+téléopération 5G existante repose sur \texttt{rmw\_zenoh\_cpp} (Zenoh en
+hub-and-spoke), car le réseau cellulaire bloque le multicast UDP. Les objectifs
+de la semaine étaient : préparer une \textbf{démonstration sur WiFi}, puis
+\textbf{démarrer le volet autonomie} (perception LiDAR et conduite réactive).
+L'essentiel du travail a été réalisé à distance, par SSH depuis le PC vers la
+Jetson (\texttt{protova2@10.37.11.28}).
+
+% =====================================================================
+\section{Plateformes matérielles}
+Les travaux portent sur deux prototypes de voiture RC autonome développés à
+ALTEN Labs. \textbf{Protova1} est une reconstruction depuis zéro (phase
+d'intégration) ; \textbf{Protova2} est la plateforme complète utilisée pour la
+téléopération et l'autonomie (Jetson, caméra Orbbec, antennes 5G). Les deux
+utilisent un Raspberry Pi Pico (RP2040) pour la commande PWM des actionneurs.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[b]{0.47\textwidth}
+  \includegraphics[width=\linewidth]{img_protova1.jpg}
+  \caption{Protova1 --- reconstruction depuis zéro (châssis jaune, Raspberry Pi Pico RP2040 visible, phase d'intégration).}
+\end{minipage}
+\hfill
+\begin{minipage}[b]{0.47\textwidth}
+  \includegraphics[width=\linewidth]{img_protova2.jpg}
+  \caption{Protova2 --- plateforme complète (châssis rouge, Jetson Nano, caméra Orbbec, antennes 5G, Seeed Studio).}
+\end{minipage}
+\end{figure}
+
+\noindent La téléopération s'appuie sur plusieurs sources de commande, arbitrées
+par \texttt{twist\_mux} (cf.\ §\ref{sec:mux}) : le volant Logitech \textbf{G29}
+(USB, avec retour de force) et la manette \textbf{PS4} (Bluetooth, alternative
+sans fil).
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[b]{0.47\textwidth}
+  \includegraphics[width=\linewidth]{img_g29.jpg}
+  \caption{Volant G29 + pédalier --- poste de pilotage ALTEN Labs.}
+\end{minipage}
+\hfill
+\begin{minipage}[b]{0.47\textwidth}
+  \includegraphics[width=\linewidth]{img_ps4.jpg}
+  \caption{Manette PS4 --- téléopération Bluetooth (source secondaire, priorité 60 dans \texttt{twist\_mux}).}
+\end{minipage}
+\end{figure}
+
+% =====================================================================
+\section{Démonstration WiFi (DDS natif)}
+Sur un réseau local WiFi, la découverte ROS\,2 par multicast fonctionne : Zenoh
+n'est donc pas nécessaire. On utilise le middleware par défaut
+\texttt{rmw\_fastrtps\_cpp}.
+\begin{itemize}[leftmargin=1.4em]
+  \item PC : \texttt{10.37.11.32} \quad--\quad Jetson : \texttt{10.37.11.28}
+        (même sous-réseau \texttt{10.37.11.0/24}).
+  \item Variables communes à tous les scripts WiFi :
+\begin{lstlisting}[language=bash]
+export ROS_DOMAIN_ID=125
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+unset ZENOH_SESSION_CONFIG_URI ZENOH_ROUTER_CONFIG_URI ZENOH_CONFIG
+\end{lstlisting}
+\end{itemize}
+
+\subsection{Scripts créés}
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Machine} & \textbf{Fichier} & \textbf{Rôle} \\
+\midrule
+PC     & \texttt{\textasciitilde/protova2/launch\_pc\_wifi.sh}  & \texttt{joy\_node} + retour de force G29 \\
+Jetson & \texttt{\textasciitilde/launch\_car\_wifi.sh}          & \texttt{g29\_teleop}, TX, RX, \texttt{twist\_mux}, caméra Orbbec \\
+PC     & \texttt{\textasciitilde/protova2/view\_camera\_wifi.sh}& Visualiseur caméra (\texttt{rqt\_image\_view}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\noindent Tous reprennent les conventions des scripts 5G (nettoyage des nodes
+résiduels, \texttt{trap}+\texttt{wait} pour un arrêt propre au \texttt{Ctrl+C}),
+mais \textbf{sans Zenoh ni configuration 5G} (pas de dongle, pas de correctif
+d'adressage /30$\rightarrow$/28, pas de watchdog).
+
+\subsection{Validation}
+Test de bout en bout : le PC découvre l'ensemble des topics et nodes du véhicule
+via FastDDS, et les données circulent réellement.
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Vérification & Résultat \\
+\midrule
+Découverte des 35 topics / 7 nodes & \textcolor{success}{OK} \\
+\texttt{/imu} (Jetson $\rightarrow$ PC) & $\sim$37--59 Hz \\
+\texttt{/camera/color/camera\_info} & 15 Hz (= 15 fps configurés) \\
+\texttt{/velocity} & message reçu \\
+Isolation du point d'accès (AP isolation) & aucune \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Correction d'un plantage de \texttt{rqt} sur la caméra}
+En sélectionnant directement le topic \texttt{/camera/color/image\_raw/compressed},
+\texttt{rqt} plante :
+\begin{lstlisting}
+create_subscription() ... existing topic ... incompatible type CompressedImage_
+-> invalid allocator -> terminate (RCLError)
+\end{lstlisting}
+\textbf{Cause :} les topics \texttt{.../compressed}, \texttt{.../theora}, etc.\ ne
+sont pas des topics indépendants mais des \emph{transports} du topic de base. Il
+faut s'abonner au topic \textbf{de base} et choisir le transport :
+\begin{lstlisting}[language=bash]
+ros2 run rqt_image_view rqt_image_view /camera/color/image_raw \
+  _image_transport:=compressed
+\end{lstlisting}
+C'est ce que fait le script \texttt{view\_camera\_wifi.sh} (le transport
+\texttt{compressed} est en outre recommandé sur WiFi, plus léger que le brut
+1280$\times$720).
+
+% =====================================================================
+\section{Supervision et benchmark du lien réseau}
+Pour qualifier la qualité du lien (latence, débit, pertes), deux tableaux de bord
+web temps réel ont été développés cette semaine (Python, bibliothèque standard
+uniquement), servis par la Jetson et consultés depuis le navigateur du PC.
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l X l@{}}
+\toprule
+\textbf{Outil} & \textbf{Rôle} & \textbf{Port} \\
+\midrule
+\texttt{monitor\_5g.py}   & \emph{monitoring passif} : latence (ICMP + RTT TCP Zenoh), débit RX/TX (Mbps), charge réseau (paquets/s) & 8088 \\
+\texttt{bench\_5g\_live.py} & \emph{benchmark actif} : tests \texttt{iperf3} périodiques UL+DL, latence ICMP, débit TCP, perte paquets, bouton « Tester maintenant » & 8089 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\noindent Le benchmark actif (\texttt{bench\_5g\_live.py}) requiert un
+\texttt{iperf3 -s} côté PC. Référence mesurée : $\approx$\,635 Mbps en descente /
+70 Mbps en montée, latence ICMP $\approx$\,23--30 ms, perte $<1\%$ sur le lien 5G.
+Ces outils sont directement transposables au WiFi (prochaine étape, §\ref{sec:next})
+pour une comparaison côte à côte des deux réseaux.
+
+\begin{center}
+\includegraphics[width=0.9\textwidth]{img_rqt.png}
+\captionof{figure}{Capture \texttt{rqt} : flux caméra Orbbec reçu sur le PC + liste des topics ROS\,2 actifs (\texttt{/cmd\_vel\_G29}, \texttt{/joy}, \texttt{/camera/color/image\_raw}, \texttt{/ticks}, \texttt{/velocity}, \texttt{/cmd\_vel\_aeb}, etc.).}
+\end{center}
+
+% =====================================================================
+\section{Conduite autonome réactive : conception du module \texttt{follow\_the\_gap}}
+Direction retenue : \textbf{conduite réactive} (pas de carte SLAM/Nav2 pour
+l'instant). Le paquet \texttt{navigation}, jusqu'ici vide, a été créé
+(\texttt{ament\_python}) avec le node \texttt{follow\_the\_gap}. Ce module a été
+\emph{conçu et validé hors matériel} (cf.\ §\ref{sec:valid-synth}) pendant que le
+LiDAR était indisponible, puis confirmé sur données réelles (§\ref{sec:essai}).
+
+\subsection{Conventions de commande (rétro-ingénierie)}
+À partir de \texttt{G29Teleop.py}, \texttt{TX.py} et \texttt{AEB.py} :
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\texttt{geometry\_msgs/Twist} & Signification (tous les topics \texttt{/cmd\_vel*}) \\
+\midrule
+\texttt{angular.z} & angle \textbf{servo} de direction : centre $=83$, plage $[28;138]$ ; \\
+                   & $<83$ = droite, $>83$ = gauche (sens trigonométrique). \\
+\texttt{linear.x}  & \textbf{vitesse} en m/s (téléop.\ avant 0,06--0,20 m/s, lent). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Le node \texttt{TX} convertit ensuite ces valeurs en PWM pour le Pico
+(\texttt{/dev/ttyACM0}) via une table d'interpolation PCHIP.
+
+\subsection{Algorithme}
+\begin{enumerate}[leftmargin=1.6em]
+  \item lecture de \texttt{/scan}, conservation du secteur avant ($\pm$90\textdegree),
+        nettoyage (inf/NaN $\rightarrow$ portée max, lissage) ;
+  \item \textbf{bulle de sécurité} autour du point le plus proche (on l'annule
+        pour ne jamais viser un obstacle) ;
+  \item recherche du \textbf{plus grand espace libre} (gap) ;
+  \item visée du \textbf{centre du plateau le plus lointain} du gap $\rightarrow$
+        cap, converti en angle servo ;
+  \item \textbf{vitesse} modulée par le dégagement avant et l'intensité du
+        braquage ; arrêt si l'avant $<0{,}35$ m ; watchdog d'arrêt si plus de scan
+        pendant 0,5 s.
+\end{enumerate}
+Sortie : \texttt{/cmd\_vel\_auto}. \emph{Remarque :} viser le simple maximum
+(\texttt{argmax}) faisait braquer vers le bord du gap, côté obstacle ; viser le
+\emph{centre du plateau} corrige ce défaut.
+
+\subsection{Intégration à \texttt{twist\_mux}}\label{sec:mux}
+Ajout de l'entrée autonome en \textbf{priorité la plus basse}, afin que le pilote
+et surtout l'AEB puissent reprendre la main à tout moment.
+\begin{center}
+\begin{tabular}{@{}llc@{}}
+\toprule
+Source & Topic & Priorité \\
+\midrule
+AEB (sécurité)          & \texttt{/cmd\_vel\_aeb}  & 255 \\
+Pilote PS4              & \texttt{/cmd\_vel\_ps4}  & 60 \\
+Pilote G29             & \texttt{/cmd\_vel\_G29}  & 30 \\
+\textbf{Autonome (nouveau)} & \texttt{/cmd\_vel\_auto} & \textbf{10} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Hiérarchie de sécurité : \textbf{AEB $>$ pilote $>$ autonome}.
+
+\subsection{Validation hors matériel (scan synthétique)}\label{sec:valid-synth}
+Le LiDAR étant alors indisponible, le node a été validé avec un \texttt{/scan}
+simulé :
+\begin{center}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Scénario & \texttt{linear.x} & servo (\texttt{z}) & Comportement \\
+\midrule
+Champ libre        & 0,15 m/s & 92 ($\approx$ centre) & tout droit \\
+Mur devant         & 0,0 (stop) & 138 & arrêt + braquage \\
+Obstacle à droite  & 0,11 m/s & 138 (gauche) & s'écarte à gauche \\
+Obstacle à gauche  & 0,10 m/s & 28 (droite)  & s'écarte à droite \\
+\bottomrule
+\end{tabular}
+\end{center}
+Tous les comportements sont conformes (\textcolor{success}{OK}), aucune erreur.
+
+% =====================================================================
+\section{Mise en service du LiDAR : diagnostic et réparation}
+Cette partie est présentée comme un \textbf{journal de diagnostic}, incluant
+volontairement les tentatives qui ont échoué : un LiDAR qui « tournait » mais ne
+renvoyait aucune donnée. Le cheminement constitue l'essentiel du travail.
+
+\subsection{Identification du matériel}
+Inspection des périphériques de la Jetson (\texttt{lsusb}, \texttt{ls -l
+/dev/ttyUSB* /dev/ttyACM*}, \texttt{/dev/serial/by-id/}) :
+\begin{itemize}[leftmargin=1.4em]
+  \item \texttt{ID 10c4:ea60 Silicon Labs CP210x UART Bridge} sur
+        \textbf{\texttt{/dev/ttyUSB0}} : pont USB-série du LiDAR.
+  \item Raspberry Pi Pico sur \texttt{/dev/ttyACM0} : carte de commande des
+        actionneurs (à ne pas confondre).
+  \item Caméra Orbbec Femto Bolt (USB) --- sans rapport ici.
+\end{itemize}
+Le pilote \texttt{rplidar\_ros} est déjà compilé dans l'espace de travail
+\texttt{protova2\_yass}. Le capteur est donc un \textbf{RPLIDAR} relié par CP2102 ;
+restait à déterminer le modèle, qui fixe le débit série. Détail important : le
+LiDAR est monté « moteur à l'arrière », donc l'angle brut 0\textdegree{} pointe
+vers l'\emph{arrière} ; on ajoute 180\textdegree{} pour ramener l'avant du robot à
+0\textdegree{} (cohérent avec \texttt{detection/dist\_min.py}, et appliqué dans
+\texttt{follow\_the\_gap}).
+
+\subsection{Le symptôme : aucune donnée}
+Premier essai du pilote ROS au débit 115200 :
+\begin{lstlisting}
+[INFO]  RPLIDAR SDK Version: 2.1.0
+[ERROR] Error, operation time out. SL_RESULT_OPERATION_TIMEOUT!
+[ros2run]: Process exited with failure 255
+\end{lstlisting}
+Le port s'ouvre, mais le capteur ne répond pas à la requête d'identification
+(\texttt{getDeviceInfo}). \textbf{La tête du LiDAR tournait pourtant bien.}
+
+\subsection{Diagnostic : élimination des causes (tentatives échouées)}
+\begin{description}[leftmargin=0em, itemsep=2pt]
+  \item[(\ko) Mauvais débit série.] Les quatre débits standard ont été essayés ---
+        115\,200 (A1/A2), 256\,000 (A3/S1), 460\,800 (C1), 1\,000\,000 (S2/S3) ---
+        tous en \emph{timeout}. Échec identique à toutes les vitesses
+        $\Rightarrow$ ce n'est pas un problème de débit.
+  \item[(\ko) Droits d'accès.] \texttt{id protova2 | grep dialout} $\rightarrow$
+        l'utilisateur est dans le groupe \texttt{dialout} (sinon : « accès
+        refusé », pas un timeout). Cause écartée.
+  \item[(\ko) Interférence ModemManager.] \texttt{systemctl is-active
+        ModemManager} $\rightarrow$ \texttt{inactive}. Cause écartée.
+  \item[(\ko) Sonde série bas niveau.] Un script \texttt{pyserial} envoie
+        directement les commandes du protocole RPLIDAR (réponse valide attendue :
+        octets \texttt{A5 5A}). \textbf{Aucun octet ne revient}, à aucun débit,
+        même en contournant ROS.
+  \item[(\ko) Lignes DTR/RTS.] Les quatre combinaisons (avec impulsion de reset)
+        donnent toutes \texttt{(rien)}. Cause écartée.
+\end{description}
+
+\subsection{Conclusion du diagnostic : panne matérielle}
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l c X@{}}
+\toprule
+Élément testé & État & Interprétation \\
+\midrule
+Énumération USB / ouverture du port & \ok & câble USB (adaptateur$\to$Jetson) bon \\
+Permissions (\texttt{dialout})       & \ok & pas un problème de droits \\
+ModemManager                         & \ok & inactif, pas d'interférence \\
+4 débits série                       & \ok & pas une mauvaise config \\
+Lignes DTR/RTS (4 combinaisons)      & \ok & pas un souci de ligne de contrôle \\
+\textbf{Réponse données du LiDAR}    & \ko & \textbf{le capteur n'émet rien} \\
+Rotation de la tête (moteur)         & \ok & \textbf{alimentation présente} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\noindent \textbf{Verdict :} la tête tourne (LiDAR \emph{alimenté}) mais ne renvoie
+aucune donnée $\Rightarrow$ les broches d'alimentation font contact mais
+\textbf{pas les broches de données} : \textbf{défaut de câble/connecteur de
+données}, ni logiciel ni alimentation. Cohérent avec le fait que ce LiDAR
+fonctionnait auparavant (PrototypeVA, 2025) : connecteur probablement desserré par
+les vibrations.
+
+\begin{tcolorbox}[colback=lightgreen,colframe=success,title=Leçon clé]
+La rotation de la tête ne prouve que l'\textbf{alimentation}. Une sonde série
+brute muette à tous les débits prouve que le défaut est sur la \textbf{liaison de
+données} (connecteur/câble), et non dans la configuration logicielle.
+\end{tcolorbox}
+
+\subsection{Réparation et validation}
+Mise hors tension, puis \textbf{ré-emboîtement ferme du connecteur de données}
+entre la tête du LiDAR et la carte CP2102 (tirer sur le connecteur, jamais sur les
+fils ; respecter le sens), puis rebranchement de l'USB. La sonde répond alors :
+\begin{lstlisting}
+[115200] GET_INFO   -> a5 5a 14 00 00 00 04 18 1d 01 07 7e e4 ...
+[115200] GET_HEALTH -> a5 5a 03 00 00 00 06 00 00 00
+\end{lstlisting}
+Décodage : descripteur \texttt{A5 5A}, \textbf{modèle 0x18}, firmware
+\textbf{1.29}, révision matérielle 7, santé \texttt{00} = \textbf{OK}.
+$\Rightarrow$ le capteur est un \textbf{RPLIDAR A1}, débit \textbf{115200}. Le
+topic \texttt{/scan} est ensuite publié :
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Paramètre & Valeur \\
+\midrule
+Santé / mode      & OK / \emph{Sensitivity}, 8 kHz, 12 m, 10 Hz \\
+Cadence \texttt{/scan} & $\approx$ 7,4 Hz \\
+Points par tour   & $\approx$ 1080 \\
+Portée            & 0,15 -- 12 m \\
+\texttt{frame\_id} & \texttt{laser\_frame} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =====================================================================
+\section{Visualisation dans RViz (côté PC, WiFi)}
+RViz\,2 est fourni avec ROS\,2 Humble (\texttt{/opt/ros/humble/bin/rviz2}, déjà
+installé) et une session graphique (\texttt{DISPLAY=:1}) est disponible sur le PC.
+
+\subsection{Maintenir le LiDAR actif : tentatives échouées}
+RViz tourne sur le PC ; le LiDAR doit tourner sur la Jetson. Faire survivre un
+processus lancé par SSH après la fermeture de la session s'est révélé délicat :
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l c X@{}}
+\toprule
+Méthode & Résultat & Raison \\
+\midrule
+\texttt{nohup \ldots \& disown}      & \ko & le processus meurt à la fermeture du SSH \\
+\texttt{setsid \ldots}               & \ko & idem (SIGHUP) \\
+\texttt{tmux}                        & \ko & \texttt{tmux} non installé \\
+SSH maintenu ouvert (corrigé)        & \ok & le LiDAR reste publié tant que la session vit \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\begin{tcolorbox}[colback=lightorange,colframe=warning,title=Piège : auto-suppression par pkill]
+\texttt{pkill -f "rplidar\_composition"} lancé \emph{dans} une commande SSH
+correspond à la ligne de commande du shell SSH lui-même (qui contient ce texte) :
+il se tue donc tout seul (sortie 255). Solutions : ménage dans une commande SSH
+\emph{séparée}, astuce des crochets (\texttt{pkill -f "[r]plidar"}), ou tuer par
+PID.
+\end{tcolorbox}
+\noindent Solution retenue : lancer le LiDAR \emph{au premier plan} dans une
+session SSH maintenue ouverte ; tant qu'elle vit, \texttt{/scan} est publié.
+
+\subsection{Configuration et résultat}
+Astuce : en fixant \textbf{Fixed Frame = \texttt{laser\_frame}} (le repère du scan
+lui-même), aucun arbre de transformations (TF) n'est nécessaire pour afficher le
+nuage de points. Un fichier \texttt{scan.rviz} a été préparé (grille 1 m, affichage
+\texttt{LaserScan} sur \texttt{/scan}, fiabilité \emph{Best Effort}), lancé par
+\texttt{view\_scan\_wifi.sh}. \textbf{Résultat} (\ok) : RViz affiche en temps réel
+un nuage de points rouges représentant le contour de la pièce vu de dessus ---
+chaque point est un impact laser, le centre (0,0) est le LiDAR, chaque carré vaut
+1 m. \texttt{LaserScan : Status Ok}, 31 fps. (« Global Status : Warn » est normal :
+pas d'arbre TF, sans incidence puisque le \emph{Fixed Frame} est le repère du
+scan.)
+
+% =====================================================================
+\section{Premier essai de conduite réactive (roues en l'air)}\label{sec:essai}
+Une fois le \texttt{/scan} validé, un premier essai de la chaîne complète a été
+réalisé. \textbf{Précaution :} la voiture était \emph{surélevée, roues ne touchant
+pas le sol}, afin d'observer direction et propulsion sans déplacement réel.
+
+\subsection{Ce qui a été lancé}
+Tout est démarré par un unique script, \texttt{launch\_autonomous.sh}, qui lance
+huit nodes ROS\,2 (DDS natif, domaine 125) :
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}c l X l@{}}
+\toprule
+\# & Node & Rôle & Topic / sortie \\
+\midrule
+1 & \texttt{rplidar\_composition}        & LiDAR                              & \texttt{/scan} \\
+2 & \texttt{detection dist\_min}          & distances mini par secteur        & \texttt{/closest\_object\_front\_distance} \\
+3 & \texttt{safety AEB}                   & freinage d'urgence (prio.\ 255)   & \texttt{/cmd\_vel\_aeb} \\
+4 & \texttt{navigation follow\_the\_gap}  & conduite réactive (prio.\ 10)     & \texttt{/cmd\_vel\_auto} \\
+5 & \texttt{controller g29\_teleop}       & reprise pilote (prio.\ 30)        & \texttt{/cmd\_vel\_G29} \\
+6 & \texttt{twist\_mux}                   & arbitrage des priorités           & \texttt{/cmd\_vel} \\
+7 & \texttt{controller TX}                & \textbf{envoi au Pico (actionneurs)} & série \texttt{/dev/ttyACM0} \\
+8 & \texttt{RX}                           & retour capteurs                   & \texttt{/velocity}, \texttt{/ticks} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\noindent Hiérarchie de sécurité (arbitrée par \texttt{twist\_mux}) :
+AEB (255) $>$ pilote G29 (30) $>$ autonome (10).
+
+\subsection{Résultats observés}
+La chaîne fonctionne de bout en bout. Les huit nodes sont actifs et TX a bien
+ouvert le port série du Pico :
+\begin{lstlisting}
+[INFO] [cmd_vel_stamped_to_serial]: Serial ouvert sur /dev/ttyACM0 @ 115200
+[INFO] [follow_the_gap]: cap=-82.2  servo=28.0  v=0.095 m/s  avant=1.11 m
+[INFO] [cmd_vel_stamped_to_serial]: CTRL,28,0.095   <- trame envoyee au Pico
+\end{lstlisting}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Mesure (vue depuis le PC) & Valeur \\
+\midrule
+\texttt{/cmd\_vel} (servo, vitesse) & 28 ; $\approx$ 0,09 m/s \\
+\texttt{/closest\_object\_front\_distance} & 0,73 m \\
+follow\_the\_gap : cap visé & $\approx -82$\textdegree\ (espace libre à droite) \\
+TX $\rightarrow$ Pico & \texttt{CTRL,28,0.09} en continu \\
+\texttt{/velocity} (encodeur) & $-0{,}0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent \textbf{Interprétation :} le node vise le côté le plus dégagé, braque le
+servo (28) et commande une vitesse lente ($\approx$0,09 m/s) --- comportement
+cohérent. Les ordres atteignent physiquement le Pico. La roue motrice n'a pas
+tourné car \textbf{l'ESC (moteur de propulsion) a sa propre batterie/interrupteur,
+distinct de l'alimentation Jetson, et n'était pas alimenté} lors de l'essai ; la
+chaîne de commande est donc correcte de bout en bout, seule la puissance de
+traction manquait (d'où \texttt{/velocity}$=0$). Aucune procédure d'armement
+particulière n'est requise (la conduite au G29 se fait par simple accélérateur) :
+une fois l'ESC alimenté, la commande autonome entraînera la propulsion de la même
+manière.
+
+\subsection{Arrêt sécurisé}
+À la demande, tout a été arrêté proprement, en garantissant l'arrêt des
+actionneurs : (1) arrêt des nodes par \texttt{pkill} en \textbf{forme crochet}
+(\texttt{pkill -9 -f "[r]plidar"}\ldots), sans nom littéral ailleurs dans la
+commande ; (2) \textbf{envoi d'une trame neutre au Pico} pour ne pas laisser le
+moteur sur la dernière commande :
+\begin{lstlisting}[language=bash]
+printf "CTRL,83,0.0\n" > /dev/ttyACM0   # servo=83 (centre), vitesse=0
+\end{lstlisting}
+\begin{tcolorbox}[colback=lightorange,colframe=warning,title=Deux pièges à l'arrêt]
+\textbf{(1) Auto-suppression par \texttt{pkill} :} si la commande SSH contient un
+nom de node en clair (même dans un \texttt{pgrep} de vérification), un
+\texttt{pkill -f} sur ce nom tue le shell SSH lui-même (255). $\Rightarrow$ tout
+en forme crochet, vérifier dans une commande séparée.\\
+\textbf{(2) \texttt{kill -9} et \texttt{trap} :} tuer le script avec \texttt{-9}
+n'exécute pas son \texttt{trap} de nettoyage : les nodes enfants survivent
+(orphelins). $\Rightarrow$ tuer explicitement chaque node, puis envoyer la trame
+neutre.
+\end{tcolorbox}
+
+% =====================================================================
+\section{Livrables et scripts}
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Fichier} & \textbf{Description} \\
+\midrule
+\texttt{launch\_pc\_wifi.sh} (PC)        & démo WiFi côté PC \\
+\texttt{launch\_car\_wifi.sh} (Jetson)   & démo WiFi côté véhicule \\
+\texttt{view\_camera\_wifi.sh} (PC)      & visualiseur caméra (anti-plantage rqt) \\
+\texttt{launch\_lidar.sh} (Jetson)       & démarrage RPLIDAR (débit paramétrable) \\
+\texttt{launch\_autonomous.sh} (Jetson)  & chaîne autonome complète (8 nodes) \\
+\texttt{src/navigation/} (paquet)        & \texttt{follow\_the\_gap} + launch \\
+\texttt{twist\_mux.yaml}                 & ajout de l'entrée \texttt{/cmd\_vel\_auto} \\
+\texttt{scan.rviz}, \texttt{view\_scan\_wifi.sh} (PC) & visualisation \texttt{/scan} \\
+\texttt{rplidar\_probe.py} (Jetson)      & sonde de diagnostic série \\
+\texttt{monitor\_5g.py} (Jetson)         & tableau de bord monitoring passif (port 8088) \\
+\texttt{bench\_5g\_live.py} (Jetson)     & tableau de bord benchmark actif iperf3 (port 8089) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\noindent Chaîne lancée par \texttt{launch\_autonomous.sh} :
+\texttt{rplidar $\rightarrow$ dist\_min $\rightarrow$ AEB \;|\; follow\_the\_gap}
+$\;\rightarrow\;$ \texttt{twist\_mux} $\rightarrow$ \texttt{TX} $\rightarrow$ Pico,
+avec \texttt{RX} $\rightarrow$ \texttt{/velocity}.
+
+% =====================================================================
+\section{Synthèse et prochaines étapes}\label{sec:next}
+\paragraph{Synthèse.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item Démonstration de téléopération \textbf{sur WiFi} en DDS natif validée de
+        bout en bout (sans Zenoh) ; plantage \texttt{rqt} caméra corrigé.
+  \item Module de \textbf{conduite réactive} \texttt{follow\_the\_gap} créé dans le
+        paquet \texttt{navigation}, intégré à \texttt{twist\_mux} (priorité la plus
+        basse), validé sur scan synthétique.
+  \item LiDAR : \textbf{RPLIDAR A1} identifié ; panne diagnostiquée par élimination
+        (\textbf{connecteur de données desserré}) ; réparé ; \texttt{/scan} publié
+        ($\approx$7,4 Hz) et visualisé dans RViz.
+  \item \textbf{Premier essai de conduite réactive} (roues en l'air) : chaîne
+        complète opérationnelle, commandes transmises au Pico ; arrêt sécurisé.
+        Reste à alimenter l'ESC pour observer la propulsion.
+\end{enumerate}
+
+\paragraph{Prochaines étapes.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item Alimenter l'ESC (batterie de traction) et confirmer le démarrage de la
+        propulsion ; ajuster si besoin la vitesse minimale (seuil de démarrage du
+        moteur).
+  \item Régler les paramètres de \texttt{follow\_the\_gap}
+        (\texttt{bubble\_radius}, \texttt{gap\_threshold}, \texttt{steer\_gain},
+        vitesses) sur données réelles.
+  \item Essai au sol dans un couloir dégagé, avec reprise pilote (G29) et AEB
+        actifs.
+  \item À plus long terme : passage éventuel au SLAM / Nav2 (navigation
+        cartographiée), qui nécessitera l'URDF (\texttt{car\_description}) et un
+        arbre TF complet.
+\end{enumerate}
+
+\end{document}

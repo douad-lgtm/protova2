@@ -1,0 +1,285 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.3cm, right=2.3cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{amssymb}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary, citecolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{lightorange}{HTML}{FFF3E0}
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+
+\lstdefinestyle{sh}{backgroundcolor=\color{codebg}, basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codeblue}\bfseries, commentstyle=\color{codegreen}\itshape,
+  breaklines=true, frame=single, showstringspaces=false, tabsize=2, columns=fullflexible}
+\lstset{style=sh}
+
+\title{\textbf{Perception LiDAR, navigation autonome (SLAM / Nav2)\\ et communication V2V}\\[2mm]
+\large Rapport technique hebdomadaire --- ProtoVA2 (Jetson Orin Nano, ROS\,2 Humble)}
+\author{Douae Sebti --- ALTEN Labs}
+\date{Semaine du 23 au 26 juin 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Ce rapport présente les travaux que j'ai menés cette semaine sur le
+prototype ProtoVA2, sur trois axes : (i) la mise en service du \textbf{LiDAR} et la
+chaîne de perception, (ii) la \textbf{navigation autonome} --- d'abord une approche
+réactive, puis une architecture \emph{cartographiée} (SLAM + \texttt{Nav2}) ---, et
+(iii) la \textbf{communication V2V} (\emph{vehicle-to-vehicle}) au standard
+européen ETSI, via la pile \texttt{Vanetza}. Pour chaque axe, je détaille les choix
+techniques, les résultats obtenus, les limites identifiées et les perspectives pour
+la semaine suivante.
+\end{abstract}
+
+\tableofcontents
+\bigskip\hrule
+
+% =====================================================================
+\section{Contexte et objectifs}
+ProtoVA2 est un véhicule à l'échelle (direction \textbf{Ackermann}, propulsion par
+moteur brushless/ESC, calculateur Jetson Orin Nano sous ROS\,2 Humble). Cette
+semaine, je me suis fixé deux objectifs : doter le véhicule d'une capacité de
+\textbf{navigation autonome} fondée sur la perception LiDAR, et mettre en place une
+\textbf{communication V2V} entre véhicules. J'ai mené ces deux volets en parallèle.
+
+% =====================================================================
+\section{Perception LiDAR}
+
+\subsection{Matériel et intégration}
+Le capteur est un \textbf{RPLIDAR A1} (firmware 1.29), relié par un pont USB-série
+Silicon Labs \textbf{CP2102} (\texttt{10c4:ea60}) exposé sur \texttt{/dev/ttyUSB0},
+à \textbf{115200} bauds. Le pilote ROS\,2 \texttt{rplidar\_ros} publie le flux
+\texttt{/scan} (\texttt{sensor\_msgs/LaserScan}).
+
+\paragraph{Mise en service --- diagnostic.} Le capteur ne renvoyait initialement
+aucune donnée (\texttt{SL\_RESULT\_OPERATION\_TIMEOUT}) bien que le moteur tourne.
+J'ai mené un diagnostic par élimination (débit série, droits d'accès, interférence
+ModemManager, sonde série bas niveau, lignes DTR/RTS) qui m'a permis d'écarter
+toute cause logicielle et d'identifier un \textbf{défaut de connecteur de données} ;
+le ré-emboîtement a rétabli la communication.
+
+\subsection{Caractéristiques du flux \texttt{/scan}}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Paramètre & Valeur \\
+\midrule
+Fréquence de scan & $\approx$ 7,4 Hz \\
+Points par tour & $\approx$ 1080 \\
+Portée & 0,15 -- 12 m \\
+Repère (\texttt{frame\_id}) & \texttt{laser} \\
+Mode & \emph{Sensitivity}, 8 kHz \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Montage et repère.} Le LiDAR est monté « moteur vers l'arrière » :
+l'angle nul du scan pointe vers l'arrière du véhicule. Ce décalage de 180\textdegree{}
+est encodé directement dans la description URDF (articulation
+\texttt{laser\_joint}, \texttt{rpy = 0\ 0\ $\pi$}), de sorte que la chaîne de
+transformations (TF) restitue automatiquement l'orientation correcte.
+
+\subsection{Visualisation (RViz)}
+J'ai visualisé le flux sur le PC via WiFi (DDS natif). En fixant le \emph{Fixed
+Frame} sur \texttt{laser}, l'affichage du nuage de points ne requiert pas d'arbre
+TF complet, ce qui m'a permis de valider rapidement la qualité du scan.
+
+% =====================================================================
+\section{Première approche : navigation réactive}
+J'ai d'abord implémenté une navigation \textbf{réactive} de type
+\emph{follow-the-gap} (paquet ROS\,2 \texttt{navigation}, n{\oe}ud
+\texttt{follow\_the\_gap}).
+
+\paragraph{Principe.} À chaque scan : je sélectionne le secteur avant
+($\pm$90\textdegree), j'étends les obstacles à la demi-largeur du véhicule
+(\emph{disparity extender}), je place une bulle de sécurité autour du point le plus
+proche, je cherche le plus grand espace libre, puis je vise le centre de sa zone la
+plus dégagée. La sortie est une consigne \texttt{geometry\_msgs/Twist}
+(\texttt{angular.z} = angle de braquage servo $\in[28;138]$, centre 83 ;
+\texttt{linear.x} = vitesse en m/s), publiée sur \texttt{/cmd\_vel\_auto} et
+arbitrée par \texttt{twist\_mux} en priorité basse (sous l'AEB et la reprise pilote).
+
+\paragraph{Résultats.} J'ai validé le n{\oe}ud sur scan synthétique (champ libre,
+mur frontal, obstacle latéral) puis sur données réelles ; j'ai vérifié la chaîne
+complète capteur $\rightarrow$ décision $\rightarrow$ actionneur (Pico).
+
+\begin{tcolorbox}[colback=lightorange, colframe=warning, title=\textbf{Limites de l'approche réactive}]
+La navigation réactive s'est révélée \textbf{insuffisante} : oscillations de la
+consigne de braquage (la « plus grande ouverture » alterne entre côtés) et
+évitement d'obstacles peu robuste car \emph{sans mémoire} de l'environnement (le
+véhicule ne sait pas où il est, il ne fait que réagir à l'instant). Ces limites
+m'ont conduite à passer à une \textbf{navigation cartographiée}.
+\end{tcolorbox}
+
+% =====================================================================
+\section{Navigation cartographiée : SLAM et Nav2}
+J'ai retenu la navigation fondée sur une carte (standard de l'état de l'art
+robotique), qui apporte planification globale et évitement d'obstacles par
+\emph{costmap}.
+
+\subsection{Chaîne de transformations (TF) et odométrie}
+La cohérence spatiale repose sur l'arbre TF :
+\[
+\texttt{map} \rightarrow \texttt{odom} \rightarrow \texttt{base\_link}
+\rightarrow \texttt{laser}
+\]
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item \texttt{base\_link} $\rightarrow$ \texttt{laser} : statique, issu de l'URDF
+        (\texttt{car\_description} + \texttt{robot\_state\_publisher}).
+  \item \texttt{odom} $\rightarrow$ \texttt{base\_link} : \textbf{odométrie}. Le
+        paquet \texttt{localisation} fournit une odométrie laser (\texttt{rf2o}),
+        une odométrie Ackermann (encodeur + angle de braquage) et une fusion
+        \textbf{EKF} (\texttt{robot\_localization}). Pour la cartographie, j'ai
+        utilisé \texttt{rf2o} seule afin de limiter les dépendances.
+  \item \texttt{map} $\rightarrow$ \texttt{odom} : fourni par le SLAM.
+\end{itemize}
+
+\subsection{SLAM (cartographie)}
+La cartographie s'appuie sur \texttt{slam\_toolbox} (mode asynchrone en ligne).
+J'ai rendu opérationnelle la chaîne LiDAR + TF + odométrie laser +
+\texttt{slam\_toolbox} : l'arbre TF est complet et la grille d'occupation
+(\texttt{/map}) se construit. Je sauvegarde la carte au format ROS standard
+(\texttt{.pgm} + \texttt{.yaml}) via \texttt{nav2\_map\_server}.
+
+\subsection{Pile de navigation Nav2}
+J'ai installé la pile \texttt{Nav2} (\texttt{navigation2}, \texttt{nav2\_bringup}).
+Composants clés retenus :
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item \textbf{Contrôleur} : \texttt{RegulatedPurePursuitController}, adapté à une
+        cinématique \textbf{Ackermann} (suivi de trajectoire par point de visée).
+  \item \textbf{Costmaps} en couches : couche \emph{statique} (la carte = murs
+        permanents), couche \emph{obstacles} (LiDAR temps réel), couche
+        \emph{inflation} (marge de sécurité).
+  \item \textbf{Localisation} : \texttt{AMCL} sur la carte enregistrée.
+\end{itemize}
+
+\begin{tcolorbox}[colback=lightblue, colframe=primary, title=\textbf{Gestion des obstacles dynamiques (mobilier)}]
+La problématique des obstacles mobiles (tables, chaises déplacées) est traitée
+nativement par l'architecture en couches de Nav2 : la \textbf{carte statique} ne
+contient que la structure permanente (murs), tandis que la \textbf{couche obstacles}
+intègre en temps réel ce que voit le LiDAR et \emph{efface} l'espace redevenu libre.
+Le planificateur contourne donc les obstacles \emph{présents}, indépendamment de
+l'état de la carte au moment de sa création.
+\end{tcolorbox}
+
+% =====================================================================
+\section{Communication V2V (Vanetza, ETSI CAM)}
+En parallèle de la navigation, j'ai mis en place une communication
+\textbf{véhicule-à-véhicule} au standard européen.
+
+\subsection{Standard et pile logicielle}
+J'ai retenu le standard \textbf{ETSI C-ITS} (messages \textbf{CAM}, \emph{Cooperative
+Awareness Message}, et à terme \textbf{DENM} pour les événements) --- et non le BSM
+américain, puisque nous sommes en Europe. J'utilise la pile open-source
+\textbf{Vanetza}, qui implémente la pile ITS-G5 (GeoNetworking, BTP, CAM/DENM en
+ASN.1). Ne disposant pas de radio 802.11p, j'exploite l'application
+\texttt{socktap} de Vanetza sur le \textbf{WiFi} (lien UDP multicast) : les messages
+échangés sont de vrais CAM ETSI, seule la couche radio est remplacée.
+
+\subsection{Échange de CAM}
+J'ai compilé Vanetza (option \texttt{socktap}, backend OpenSSL) sur le PC et la
+Jetson, puis lancé \texttt{socktap} de part et d'autre. \textbf{Résultat :} échange
+de CAM \textbf{bidirectionnel} confirmé sur WiFi (chaque véhicule reçoit le
+\texttt{Station ID} de l'autre), sans matériel dédié ni privilèges \texttt{root}.
+Chaque CAM ($\approx$99 octets, $\approx$1 Hz) contient l'en-tête ITS (version,
+type, identifiant station) et le conteneur \emph{CoopAwareness} (position GPS,
+cap, vitesse, type et dimensions du véhicule).
+
+\subsection{Intégration ROS2 et alerte de proximité}
+J'ai développé un n{\oe}ud ROS\,2 (\texttt{v2v\_node.py}) qui exploite les CAM
+reçus : il en extrait la position des autres véhicules, calcule la distance et
+publie \texttt{/v2v/remote\_vehicles} ainsi qu'une \texttt{/v2v/alert} en cas de
+proximité. \textbf{Résultat :} véhicule distant à 5\,m $\rightarrow$ alerte ; à
+1,1\,km $\rightarrow$ pas d'alerte (la logique discrimine correctement).
+
+\subsection{Position dynamique issue de l'odométrie}
+Pour que le CAM porte la position \emph{réelle} du véhicule, j'ai ajouté à
+\texttt{socktap} un fournisseur de position alimenté par UDP, puis un n{\oe}ud
+(\texttt{odom\_to\_gps}) qui convertit l'odométrie locale (mètres) en coordonnées
+GPS. \textbf{Résultat :} en poussant le véhicule (aller-retour d'$\approx$1,7\,m),
+la distance mesurée par l'autre véhicule a suivi en direct
+($3{,}3 \rightarrow 5{,}3 \rightarrow 3{,}4$ m), l'alerte disparaissant au-delà de
+5\,m puis revenant --- le mouvement physique réel voyage bien dans les CAM.
+
+\subsection{Vérification de la communication}
+J'ai prévu trois niveaux de vérification : l'affichage applicatif de
+\texttt{socktap} (\texttt{--print-rx-cam}), l'observation des trames sur le réseau
+avec \texttt{tcpdump} (multicast \texttt{239.118.122.97}, port \texttt{8947}), et
+le décodage complet des champs CAM sous \textbf{Wireshark}.
+
+% =====================================================================
+\section{Limites actuelles}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Carte du lieu (navigation).} La carte existante fournie est une
+        image (PNG) sans métadonnées (\texttt{.yaml} : résolution, origine) ; elle
+        n'est pas directement exploitable par Nav2. Une cartographie propre par SLAM
+        est nécessaire.
+  \item \textbf{Interface de commande Ackermann.} Nav2 produit une consigne
+        \texttt{Twist} (vitesse linéaire, vitesse de rotation), alors que le
+        véhicule attend un \textbf{angle de braquage servo}. Un n{\oe}ud de
+        conversion \emph{twist $\rightarrow$ angle de braquage}
+        ($\delta = \arctan(L\,\omega / v)$, $L$ empattement) reste à écrire.
+  \item \textbf{Transport des grosses données sur WiFi.} Le topic \texttt{/map}
+        (et les costmaps) ne traverse pas le WiFi avec la configuration FastDDS par
+        défaut ; un profil adapté (ou RViz exécuté localement) sera requis.
+  \item \textbf{V2V.} La communication se limite pour l'instant aux \textbf{CAM} et
+        à une alerte de proximité ; les \textbf{DENM} (événements) et la
+        \textbf{sécurité} (messages signés par certificats) restent à ajouter.
+  \item \textbf{Fiabilité mécanique du LiDAR.} Le connecteur de données se
+        désolidarise lors des manipulations du véhicule ; une fixation pérenne est
+        à prévoir.
+\end{itemize}
+
+% =====================================================================
+\section{Perspectives --- semaine du 30 juin 2026}
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Cartographie propre} du site par SLAM, avec sauvegarde \texttt{.pgm}
+        + \texttt{.yaml} (résolution et origine correctes).
+  \item \textbf{N{\oe}ud de conversion Ackermann} (twist Nav2 $\rightarrow$ angle de
+        braquage servo $\rightarrow$ trame Pico) et intégration via \texttt{twist\_mux}.
+  \item \textbf{Localisation AMCL} sur la carte, réglage des \textbf{costmaps} et du
+        contrôleur Pure Pursuit, puis \textbf{navigation autonome de bout en bout}
+        (objectif envoyé depuis RViz, évitement d'obstacles réels).
+  \item \textbf{V2V} : ajout des \textbf{DENM} (alerte de freinage / obstacle),
+        puis sécurité par certificats ; à terme, coupler l'alerte V2V au freinage
+        d'urgence (AEB).
+  \item \textbf{Transport WiFi} : profil FastDDS pour les topics volumineux.
+\end{enumerate}
+
+\paragraph{Synthèse de l'état d'avancement.}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}X l@{}}
+\toprule
+\textbf{Élément} & \textbf{État} \\
+\midrule
+Perception LiDAR (\texttt{/scan}, diagnostic, RViz) & \textcolor{success}{Opérationnel} \\
+Navigation réactive (\texttt{follow\_the\_gap}) & \textcolor{success}{Réalisée} (abandonnée : limites) \\
+SLAM (\texttt{slam\_toolbox}, TF, odométrie) & \textcolor{success}{Opérationnel} \\
+Installation Nav2 & \textcolor{success}{Terminée} \\
+V2V : échange CAM (Vanetza) + ROS2 + alerte & \textcolor{success}{Opérationnel} \\
+V2V : position dynamique (odométrie réelle) & \textcolor{success}{Opérationnel} \\
+Carte géoréférencée du site & \textcolor{warning}{À produire} \\
+Conversion Ackermann (twist $\rightarrow$ servo) & \textcolor{warning}{À développer} \\
+Navigation Nav2 de bout en bout & \textcolor{warning}{À réaliser} \\
+V2V : DENM + sécurité & \textcolor{warning}{À développer} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\end{document}

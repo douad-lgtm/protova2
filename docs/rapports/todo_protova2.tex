@@ -1,0 +1,107 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{codebg}{HTML}{F5F5F5}
+
+\lstset{backgroundcolor=\color{codebg}, basicstyle=\ttfamily\footnotesize,
+  breaklines=true, frame=single, showstringspaces=false, columns=fullflexible}
+
+\titleformat{\section}{\large\bfseries\color{primary}}{\thesection.}{0.6em}{}
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+\setlength{\parindent}{0pt}
+
+% cases a cocher
+\newcommand{\todo}{$\square$\ }
+\newcommand{\done}{\textcolor{success}{$\boxtimes$}\ }
+
+\title{\textbf{TO-DO --- ProtoVA : Autonomie \& V2V}}
+\author{Douae Sebti}
+\date{Mis à jour le 25 juin 2026 \quad(\done~= fait,\quad $\square$~= à faire)}
+
+\begin{document}
+\maketitle
+\vspace{-6pt}\hrule
+
+% =====================================================================
+\section{Vérifier la communication V2V (prioritaire)}
+\begin{itemize}[leftmargin=1.6em, label={}]
+  \item \done \textbf{Niveau appli} : \texttt{socktap --print-rx-cam} montre le
+        \texttt{Station ID} de l'autre (ou \texttt{ros2 topic echo /v2v/remote\_vehicles}).
+  \item \todo \textbf{Sur le fil avec \texttt{tcpdump}} (preuve que les trames circulent) :
+\begin{lstlisting}[language=bash]
+sudo tcpdump -i wlp2s0 -n -e udp port 8947
+# multicast 239.118.122.97:8947 ; voir les 2 MAC (PC 10:e1:8e:56:07:1a,
+# Jetson 14:75:5b:15:59:32) alterner ~1/s
+\end{lstlisting}
+  \item \todo \textbf{Wireshark --- décodage CAM complet} :
+\begin{lstlisting}[language=bash]
+sudo apt install wireshark tshark
+# Le plus propre : socktap en mode raw (EtherType 0x8947, decode auto)
+sudo ~/vanetza/build/bin/socktap -l ethernet -i wlp2s0 -a ca \
+  --security none --station-id 1
+# Wireshark sur wlp2s0, filtre : cam   (ou its / eth.type == 0x8947)
+\end{lstlisting}
+  \item \todo \textbf{(option UDP)} dans Wireshark : clic droit $\rightarrow$
+        \emph{Decode As\ldots{} $\rightarrow$ GeoNetworking} pour dérouler le CAM.
+\end{itemize}
+
+% =====================================================================
+\section{V2V --- suite}
+\begin{itemize}[leftmargin=1.6em, label={}]
+  \item \done Échange CAM ETSI (Vanetza) PC$\leftrightarrow$Jetson sur WiFi.
+  \item \done Intégration ROS2 (\texttt{v2v\_node.py}) + alerte de proximité.
+  \item \done Position dynamique (simulée puis \textbf{odométrie réelle}, aller-retour validé).
+  \item \done \textbf{CAM enrichi} : \texttt{cap} (yaw) et \texttt{vitesse} (twist) réels dans
+        le CAM émis (avant : toujours 0). Vérifié : \texttt{Heading 900}/\texttt{Speed 500}
+        pour un push \texttt{90\textdegree{}/5\,m/s}.
+  \item \todo Robustifier l'odométrie (EKF \texttt{/odometry/filtered} au lieu de rf2o seul).
+  \item \todo Ajouter les \textbf{DENM} (alerte de freinage / obstacle).
+  \item \todo \textbf{Sécurité} : passer en \texttt{--security certs} (messages signés, vrai C-ITS).
+  \item \todo Coupler l'alerte V2V au \textbf{freinage (AEB)} --- nécessitera l'ESC.
+  \item \todo Démo « deux vrais véhicules » (Protova1 $\leftrightarrow$ Protova2) avec origine commune.
+\end{itemize}
+
+% =====================================================================
+\section{Autonomie --- Nav2 / SLAM}
+\begin{itemize}[leftmargin=1.6em, label={}]
+  \item \done SLAM opérationnel (\texttt{slam\_toolbox} + rf2o + TF), carte qui se construit.
+  \item \done Nav2 installé (planner, RegulatedPurePursuit, costmaps, AMCL\ldots).
+  \item \todo \textbf{Carte propre} du lieu au SLAM (conduite $\sim$10 min, sauvegarde
+        \texttt{.pgm + .yaml}).
+  \item \todo \textbf{Convertisseur twist $\rightarrow$ angle servo} (Ackermann, pour le Pico).
+  \item \todo Localisation \textbf{AMCL} sur la carte.
+  \item \todo Costmaps : couche statique (murs) + couche obstacles (LiDAR live).
+  \item \todo \textbf{Navigation bout en bout} : envoyer un objectif dans RViz, la voiture y va.
+  \item \todo Régler les paramètres (vitesses, footprint, tolérances).
+\end{itemize}
+
+% =====================================================================
+\section{Matériel / divers}
+\begin{itemize}[leftmargin=1.6em, label={}]
+  \item \todo \textbf{Fixer solidement le connecteur du LiDAR} (CP2102) --- il se
+        débranche à chaque déplacement de la voiture. Vérifier avant chaque essai :
+        \texttt{lsusb | grep 10c4} et \texttt{ls /dev/ttyUSB0}.
+  \item \todo Sécuriser l'alimentation ESC / batterie de traction pour les essais au sol.
+  \item \todo Compiler les documents \texttt{.tex} sur une machine TeX Live
+        (pas de compilateur sur ce PC).
+\end{itemize}
+
+\vspace{6pt}\hrule
+{\footnotesize\itshape Docs associés : \texttt{guide\_lancement\_v2v.tex} (lancement du stack),
+\texttt{doc\_v2v\_vanetza.tex}, \texttt{resume\_semaine\_lidar\_v2v.tex},
+\texttt{diagnostic\_lidar\_rviz.tex}, \texttt{rapport\_protova2\_semaine.tex}.}
+
+\end{document}

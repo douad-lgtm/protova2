@@ -1,0 +1,529 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,shapes.multipart}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+
+\geometry{margin=2.5cm}
+
+\definecolor{codebg}{rgb}{0.95,0.95,0.97}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0.0,0.82}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{codepurple},
+  numberstyle=\tiny\color{codegray},
+  numbers=left,
+  breaklines=true,
+  frame=single,
+  language=Python,
+  showstringspaces=false,
+  tabsize=4,
+}
+
+\title{\textbf{Documentation technique — \texttt{bench\_5g\_live.py}}\\
+       \large Benchmark actif du lien 5G — ProtoVA2}
+\author{ProtoVA2 / Sebtidouae}
+\date{Juin 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Introduction et objectif}
+%────────────────────────────────────────────────────────────────────────────
+
+\texttt{bench\_5g\_live.py} est un script Python de \textbf{benchmark actif} du lien 5G
+entre le PC opérateur et le Jetson Nano embarqué. Il a été créé en juin~2026 pour
+répondre à un besoin distinct de \texttt{monitor\_5g.py}~: \emph{mesurer la capacité réelle
+du lien}, et non simplement observer le trafic applicatif qui y passe.
+
+\subsection{Comparaison avec \texttt{monitor\_5g.py}}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Critère} & \textbf{monitor\_5g.py} & \textbf{bench\_5g\_live.py} \\
+\midrule
+Type de mesure      & Passive (observation) & Active (injection de trafic) \\
+Débit               & Trafic ROS réel (kb/s) & Capacité maximale (Mbps) \\
+Outil débit         & Compteurs sysfs & \texttt{iperf3} \\
+Latence             & ICMP + TCP Zenoh & ICMP \\
+Dépendance ROS      & Oui (optionnelle) & Non \\
+Port dashboard      & 8088 & 8089 \\
+Usage typique       & Pendant la téléopération & Avant/après session \\
+Prérequis PC        & Zenoh router + \texttt{iperf3 -s} (opt.) & \texttt{iperf3 -s} (obligatoire) \\
+\bottomrule
+\end{tabular}
+\caption{Comparaison des deux scripts de monitoring}
+\end{table}
+
+\subsection{Métriques collectées}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Métrique} & \textbf{Source} & \textbf{Unité} \\
+\midrule
+Latence ICMP (RTT)  & \texttt{ping} continu & ms \\
+Perte paquets ICMP  & Fenêtre glissante 10~s & \% \\
+Débit UL (Nano→PC)  & \texttt{iperf3} TCP normal & Mbps \\
+Débit DL (PC→Nano)  & \texttt{iperf3} TCP reverse & Mbps \\
+Trafic passif RX/TX & Compteurs sysfs & kb/s \\
+\bottomrule
+\end{tabular}
+\caption{Métriques de \texttt{bench\_5g\_live.py}}
+\end{table}
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Architecture générale}
+%────────────────────────────────────────────────────────────────────────────
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.3cm and 2.0cm,
+  box/.style={draw, rounded corners=4pt, fill=blue!8, minimum width=3.2cm,
+              minimum height=0.8cm, font=\small},
+  arr/.style={-{Latex}, thick},
+]
+  \node[box] (ping)  {PingThread};
+  \node[box, below=1.8cm of ping] (iperf) {IperfThread};
+
+  \node[box, fill=orange!15, right=3cm of ping, yshift=-0.9cm] (main)
+        {Main loop\\(0.5 s)};
+  \node[box, fill=green!15, right=2.5cm of main] (http)
+        {HTTP Server\\port 8089};
+  \node[box, fill=gray!15, below=1cm of main] (dq)
+        {\texttt{deque} SAMPLES\\(1440 pts / 12 min)};
+
+  \node[box, fill=red!8, below=1.5cm of iperf] (pc)
+        {PC — \texttt{iperf3 -s}};
+
+  \draw[arr] (ping)  -- node[above,font=\tiny]{rtt, replies} (main);
+  \draw[arr] (iperf) -- node[below,font=\tiny]{dl, ul, running} (main);
+  \draw[arr] (main)  -- node[right,font=\tiny]{sample} (dq);
+  \draw[arr] (dq)    -- node[above,font=\tiny]{/data} (http);
+  \draw[arr] (iperf) -- node[right,font=\tiny]{\texttt{iperf3 -c}} (pc);
+  \draw[arr,dashed] (http) |- node[font=\tiny,right]{/trigger-iperf} (iperf);
+
+  \node[box, fill=yellow!15, right=2.5cm of http] (browser)
+        {Navigateur PC\\:8089};
+  \draw[arr] (http)    -- (browser);
+  \draw[arr] (browser) -- (http);
+\end{tikzpicture}
+\caption{Architecture de \texttt{bench\_5g\_live.py}. La flèche en pointillés indique le
+déclenchement à la demande depuis le bouton du dashboard.}
+\end{figure}
+
+%────────────────────────────────────────────────────────────────────────────
+\section{PingThread — Latence et perte ICMP}
+%────────────────────────────────────────────────────────────────────────────
+
+Identique à \texttt{monitor\_5g.py} (voir doc correspondant). Un processus
+\texttt{ping -n -i 0.5 172.16.48.7} tourne en continu. Chaque ligne est parsée par~:
+
+\begin{lstlisting}
+RE_PING = re.compile(r'time=([\d.]+)\s*ms')
+\end{lstlisting}
+
+\subsection{RTT ICMP}
+
+Le Round-Trip Time (RTT) est mesuré par le noyau entre l'émission de \texttt{ECHO\_REQUEST}
+et la réception de \texttt{ECHO\_REPLY}~:
+
+\begin{equation}
+  \text{RTT}_{ICMP}(n) = t^{reply}_n - t^{request}_n
+\end{equation}
+
+La valeur est fraîche si elle date de moins de $3 T_{ping} + 1$ secondes~:
+\begin{lstlisting}
+def current(self):
+    return self.rtt if time.time() - self.rtt_t < 3 * self.interval + 1 else None
+\end{lstlisting}
+
+\subsection{Taux de perte par fenêtre glissante}
+
+Sur une fenêtre $W = 10\ \text{s}$, avec intervalle de ping $T_p$~:
+
+\begin{equation}
+  N_{attendu} = \frac{\min(W,\ t_{now} - t_{start})}{T_p}
+\end{equation}
+\begin{equation}
+  N_{reçu} = \bigl|\{t_i \in \texttt{replies}\ :\ t_{now} - W < t_i \leq t_{now}\}\bigr|
+\end{equation}
+\begin{equation}
+  \boxed{\text{loss}(\%) = \max\!\left(0,\ \left(1 - \frac{N_{reçu}}{N_{attendu}}\right) \times 100\right)}
+\end{equation}
+
+La condition $N_{attendu} \geq 4$ garantit un minimum de stabilité statistique avant
+d'afficher une valeur.
+
+%────────────────────────────────────────────────────────────────────────────
+\section{IperfThread — Cœur du benchmark}
+%────────────────────────────────────────────────────────────────────────────
+
+C'est le composant central et la principale différence avec \texttt{monitor\_5g.py}.
+
+\subsection{Principe d'\texttt{iperf3}}
+
+\texttt{iperf3} est un outil de benchmark réseau~: le \textbf{client} (Jetson) ouvre
+une connexion TCP vers le \textbf{serveur} (PC, \texttt{iperf3 -s}), injecte des données
+à la vitesse maximale pendant $D$ secondes, puis le serveur rapporte le débit reçu.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=2.5cm,
+  box/.style={draw, rounded corners=3pt, minimum width=2.5cm, minimum height=0.7cm,
+              font=\small, fill=blue!10},
+  arr/.style={-{Latex}, thick},
+]
+  \node[box] (nano) {Jetson (client)};
+  \node[box, right=4cm of nano] (pc) {PC (serveur)};
+
+  \draw[arr, bend left=20] (nano) to
+        node[above,font=\small]{UL: \texttt{iperf3 -c PC -t D}} (pc);
+  \draw[arr, bend left=20] (pc) to
+        node[below,font=\small]{DL: \texttt{iperf3 -c PC -t D -R}} (nano);
+\end{tikzpicture}
+\caption{Test bidirectionnel séquentiel. UL = upload (Nano→PC), DL = download (PC→Nano, mode reverse).}
+\end{figure}
+
+\subsection{Mode \texttt{-R} (reverse)}
+
+Sans \texttt{-R}~: le client envoie, le serveur reçoit → mesure UL.\\
+Avec \texttt{-R}~: le serveur envoie, le client reçoit → mesure DL.
+
+Les deux tests sont séquentiels (l'un après l'autre) pour éviter la contention~:
+
+\begin{lstlisting}[caption={Exécution séquentielle UL puis DL}]
+def run(self):
+    while True:
+        self._trigger.wait(timeout=self.interval)
+        self._trigger.clear()
+        self.running = True
+        self.last_err = None
+        ul = self._iperf(reverse=False)   # Jetson -> PC
+        dl = self._iperf(reverse=True)    # PC -> Jetson
+        with LOCK:
+            self.ul, self.dl = ul, dl
+            self.result_t = time.time()
+        self.running = False
+\end{lstlisting}
+
+\subsection{Extraction du débit depuis le JSON iperf3}
+
+\texttt{iperf3 -J} produit un JSON structuré. Le champ utile est
+\texttt{end.sum\_sent.bits\_per\_second} (UL) ou \texttt{end.sum\_received.bits\_per\_second} (DL)~:
+
+\begin{lstlisting}[caption={Parsing du JSON iperf3}]
+def _iperf(self, reverse):
+    cmd = ['iperf3', '-c', self.server, '-t', str(self.duration), '-J']
+    if reverse:
+        cmd.append('-R')
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       timeout=self.duration + 15)
+    if r.returncode != 0:
+        self.last_err = (r.stderr or r.stdout).strip()[:120]
+        return None
+    end = json.loads(r.stdout).get('end', {})
+    key = 'sum_received' if reverse else 'sum_sent'
+    bps = (end.get(key) or end.get('sum') or {}).get('bits_per_second')
+    return round(bps / 1e6, 2) if bps else None
+\end{lstlisting}
+
+La formule de conversion~:
+\begin{equation}
+  \boxed{D_{Mbps} = \frac{\texttt{bits\_per\_second}}{10^6}}
+\end{equation}
+
+La valeur \texttt{bits\_per\_second} est calculée par \texttt{iperf3} comme~:
+\begin{equation}
+  \texttt{bits\_per\_second} = \frac{8 \times \texttt{bytes\_transferred}}{D}
+\end{equation}
+
+où $D$ est la durée effective du test (en secondes). Le facteur $8$ convertit les
+octets en bits. La division par $10^6$ donne des Mégabits par seconde.
+
+\subsection{Mécanisme de déclenchement — \texttt{threading.Event}}
+
+\begin{lstlisting}[caption={Déclenchement via Event}]
+class IperfThread(threading.Thread):
+    def __init__(self, ...):
+        self._trigger = threading.Event()
+
+    def trigger(self):          # appelé depuis le thread HTTP
+        if not self.running:
+            self._trigger.set()
+
+    def run(self):
+        while True:
+            self._trigger.wait(timeout=self.interval)  # attend ou expire
+            self._trigger.clear()
+            # ... test iperf ...
+\end{lstlisting}
+
+\texttt{threading.Event} est un sémaphore binaire~:
+\begin{itemize}
+  \item \texttt{set()} $\to$ l'état passe à \textit{signalé}, débloque \texttt{wait()}.
+  \item \texttt{clear()} $\to$ l'état revient à \textit{non-signalé}.
+  \item \texttt{wait(timeout=T)} $\to$ bloque au maximum $T$ secondes ; retourne
+        \texttt{True} si le signal est reçu, \texttt{False} si timeout.
+\end{itemize}
+
+Comportement résultant~:
+\begin{itemize}
+  \item Sans action utilisateur~: un test s'exécute toutes les \texttt{interval} secondes.
+  \item Bouton «~Tester maintenant~»~: le signal est envoyé, le test démarre immédiatement
+        sans attendre l'expiration du timer.
+\end{itemize}
+
+\subsection{Durée totale d'un cycle}
+
+\begin{equation}
+  T_{cycle} = 2 \times D_{iperf} + T_{overhead}
+\end{equation}
+
+Avec les paramètres par défaut ($D_{iperf} = 5\ \text{s}$)~:
+$T_{cycle} \approx 10\ \text{s}$ de test + quelques secondes d'overhead réseau/process.
+Pendant ce temps, \texttt{running = True} et le bouton est désactivé dans le dashboard.
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Mesure passive du trafic (sysfs)}
+%────────────────────────────────────────────────────────────────────────────
+
+En parallèle des tests actifs, le script lit les compteurs du dongle 5G à chaque
+cycle de 0,5~s~:
+
+\begin{lstlisting}
+rx  = max(0, cur[0] - prev[0]) * 8 / dt / 1000  # kb/s
+tx  = max(0, cur[1] - prev[1]) * 8 / dt / 1000
+rxp = max(0, cur[2] - prev[2]) / dt              # pqt/s
+txp = max(0, cur[3] - prev[3]) / dt
+\end{lstlisting}
+
+Formule~:
+\begin{equation}
+  D^{rx}_{kb/s} = \frac{(B^{rx}_k - B^{rx}_{k-1}) \times 8}{\Delta t \times 10^3}
+\end{equation}
+
+L'unité est ici \textbf{kilobits/s} (et non Mbps) car pendant un test iperf, ce compteur
+reflète principalement le trafic iperf lui-même (quelques centaines de Mbps) — garder kb/s
+permet de voir aussi le trafic résiduel (ICMP, Zenoh) entre les tests.
+
+Le \texttt{max(0, \ldots)} protège contre les rares cas de remise à zéro du compteur
+noyau (overflow 64 bits, très improbable, ou redémarrage interface).
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Serveur HTTP et dashboard}
+%────────────────────────────────────────────────────────────────────────────
+
+\subsection{Endpoints API}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{4cm}p{7.5cm}}
+\toprule
+\textbf{URL} & \textbf{Description} \\
+\midrule
+\texttt{GET /} & Page HTML du dashboard \\
+\texttt{GET /data?since=T} & JSON : échantillons depuis $t > T$ + statut iperf \\
+\texttt{GET /trigger-iperf} & Déclenche un test iperf immédiat \\
+\bottomrule
+\end{tabular}
+\caption{API HTTP de \texttt{bench\_5g\_live.py}}
+\end{table}
+
+\subsection{Structure du JSON \texttt{/data}}
+
+\begin{lstlisting}[language=Python, caption={Payload /data}]
+payload = {
+    'samples': [
+        {'t': 1718530000.5, 'rtt': 28.4, 'loss': 0.0,
+         'rx': 12.3, 'tx': 5.1, 'rxp': 25.0, 'txp': 10.0,
+         'idl': 412.5, 'iul': 380.2},
+        ...
+    ],
+    'iperf_running': False,
+    'iperf_error':   None,
+    'iperf_ok':      True,
+}
+\end{lstlisting}
+
+Les champs \texttt{idl} / \texttt{iul} représentent le dernier résultat iperf connu.
+Ils sont \texttt{null} avant le premier test, puis gardent leur valeur jusqu'au test suivant
+(persistance dans la variable Python \texttt{last\_iperf\_dl}).
+
+\subsection{Affichage en marches d'escalier (step function)}
+
+Le graphe iperf est particulier~: les données sont \textbf{éparses} (un point toutes les
+30~s), contrairement au ping (un point toutes les 0,5~s). L'affichage en marche d'escalier
+est plus lisible qu'une ligne droite entre deux points~:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.9]
+  \draw[->] (0,0) -- (8,0) node[right]{\small $t$};
+  \draw[->] (0,0) -- (0,3) node[above]{\small Mbps};
+  % Step function
+  \draw[blue, thick] (0,0) -- (2,0) -- (2,2) -- (4,2) -- (4,1.5) -- (6,1.5) -- (6,2.2) -- (7.5,2.2);
+  % Points
+  \fill[blue] (2,2) circle(3pt) node[above right]{\small 412 Mbps};
+  \fill[blue] (4,1.5) circle(3pt) node[above right]{\small 380 Mbps};
+  \fill[blue] (6,2.2) circle(3pt) node[above right]{\small 440 Mbps};
+  % Time labels
+  \draw (2,0.05) -- (2,-0.05) node[below]{\small $t_1$};
+  \draw (4,0.05) -- (4,-0.05) node[below]{\small $t_2$};
+  \draw (6,0.05) -- (6,-0.05) node[below]{\small $t_3$};
+\end{tikzpicture}
+\caption{Affichage step-function~: la valeur reste horizontale jusqu'au prochain test}
+\end{figure}
+
+\begin{lstlisting}[language=JavaScript, caption={Rendu step-function en JavaScript}]
+if (d.step) {
+  // propager la derniere valeur connue
+  for (const s of pts) {
+    const v = s[d.k];
+    const cur = v != null ? v : lv;   // utilise la derniere connue
+    if (cur == null) continue;
+    const px = L + PW * (s.t - t0) / win;
+    const py = T + PH * (1 - cur / max);
+    if (!started) { ctx.moveTo(px, py); started = true; }
+    else          { ctx.lineTo(px, py); }
+    if (v != null) lv = v;
+  }
+}
+\end{lstlisting}
+
+\subsection{Coordonnées canvas}
+
+Pour chaque échantillon d'horodatage $t$ dans la fenêtre $[t_{now}-W,\ t_{now}]$~:
+
+\begin{equation}
+  x_{pixel} = L + PW \cdot \frac{t - (t_{now} - W)}{W}
+\end{equation}
+\begin{equation}
+  y_{pixel} = T + PH \cdot \left(1 - \frac{v}{v_{max}}\right)
+\end{equation}
+
+avec $v_{max} = 1{,}15 \times \max_i(v_i)$ (marge de 15\% en haut).
+
+\subsection{Mise à jour incrémentale}
+
+Le JavaScript ne récupère que les nouveaux points depuis la dernière requête~:
+
+\begin{lstlisting}[language=JavaScript]
+const r = await fetch('/data?since=' + last);
+// => seuls les samples avec t > last sont retournés
+for (const s of j.samples) S.push(s);
+last = S[S.length - 1].t;
+\end{lstlisting}
+
+Cette approche réduit la bande passante du dashboard lui-même (évite de retransmettre
+l'historique complet à chaque rafraîchissement de 500~ms).
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Résumé des formules mathématiques}
+%────────────────────────────────────────────────────────────────────────────
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{4.5cm}p{7cm}l}
+\toprule
+\textbf{Grandeur} & \textbf{Formule} & \textbf{Unité} \\
+\midrule
+RTT ICMP &
+$\text{RTT}(n) = t^{reply}_n - t^{request}_n$ &
+ms \\[8pt]
+Perte paquets &
+$\text{loss} = \max\!\left(0, 1 - \dfrac{N_{reçu}}{N_{attendu}}\right) \times 100$ &
+\% \\[10pt]
+$N_{attendu}$ &
+$\dfrac{\min(W,\ t_{now} - t_0)}{T_p}$ & — \\[10pt]
+Débit iperf3 &
+$D_{Mbps} = \dfrac{\texttt{bits\_per\_second}}{10^6}$ &
+Mbps \\[10pt]
+Débit iperf3 (détail) &
+$D_{Mbps} = \dfrac{8 \times \texttt{bytes}}{D_{test} \times 10^6}$ &
+Mbps \\[10pt]
+Trafic passif &
+$D_{kb/s} = \dfrac{\Delta B \times 8}{\Delta t \times 10^3}$ &
+kb/s \\[10pt]
+Durée cycle iperf &
+$T_{cycle} = 2 \times D_{iperf} + T_{overhead}$ &
+s \\[8pt]
+Position X canvas &
+$x = L + PW \cdot \dfrac{t - (t_{now}-W)}{W}$ &
+px \\[10pt]
+Position Y canvas &
+$y = T + PH \cdot \left(1 - \dfrac{v}{v_{max}}\right)$ &
+px \\
+\bottomrule
+\end{tabular}
+\caption{Toutes les formules mathématiques de \texttt{bench\_5g\_live.py}}
+\end{table}
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Utilisation}
+%────────────────────────────────────────────────────────────────────────────
+
+\subsection{Lancement}
+
+\begin{lstlisting}[language=bash]
+# Sur le PC (obligatoire, laisser ouvert)
+iperf3 -s
+
+# Sur le Jetson
+python3 ~/bench_5g_live.py
+
+# Options
+python3 ~/bench_5g_live.py --iperf-interval 30  # test toutes les 30 s
+python3 ~/bench_5g_live.py --iperf-duration 10  # 10 s par sens
+python3 ~/bench_5g_live.py --no-iperf           # ping + passif seulement
+\end{lstlisting}
+
+\subsection{Dashboard}
+
+Accessible depuis le PC~: \href{http://172.16.48.6:8089}{http://172.16.48.6:8089}
+
+\begin{itemize}
+  \item \textbf{En-tête}~: Latence ms $|$ Débit $\downarrow$ Mbps $|$ Débit $\uparrow$ Mbps $|$ Perte \%
+  \item \textbf{Graphe~1}~: RTT ICMP continu (courbe continue)
+  \item \textbf{Graphe~2}~: Débit iperf3 UL+DL (step-function) + bouton «~Tester~»
+  \item \textbf{Graphe~3}~: Trafic passif dongle 5G (kb/s)
+  \item \textbf{Graphe~4}~: Perte paquets ICMP (\%)
+\end{itemize}
+
+\subsection{Valeurs de référence}
+
+Speedtest Orange France/Lyon (2026-06-15, même dongle)~:
+\begin{itemize}
+  \item Téléchargement (DL)~: $635{,}52\ \text{Mbps}$
+  \item Téléversement (UL)~: $70{,}25\ \text{Mbps}$
+  \item Ping~: $23\ \text{ms}$
+\end{itemize}
+
+Les résultats \texttt{iperf3} devraient être proches de ces valeurs dans des conditions
+similaires.
+
+\end{document}

@@ -1,0 +1,125 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=1.6cm, bottom=1.6cm, left=1.5cm, right=1.5cm]{geometry}
+\usepackage[table]{xcolor}
+\usepackage{tabularx}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{headbg}{HTML}{2C3E50}
+\definecolor{done}{HTML}{2E7D32}
+\definecolor{prog}{HTML}{E65100}
+\definecolor{todo}{HTML}{616161}
+\definecolor{rowalt}{HTML}{EEF2FA}
+
+\newcommand{\ok}{\textcolor{done}{$\boxtimes$}}
+\newcommand{\tdo}{$\square$}
+\newcommand{\Fait}{\textcolor{done}{\textbf{Fait}}}
+\newcommand{\Enc}{\textcolor{prog}{En cours}}
+\newcommand{\Bloq}{\textcolor{prog}{\textbf{Bloqué}}}
+\newcommand{\Af}{\textcolor{todo}{À faire}}
+
+\titleformat{\section}{\large\bfseries\color{primary}}{}{0em}{}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.25}
+
+% en-tête de tableau
+\newcommand{\hdr}{\rowcolor{headbg}
+ \textcolor{white}{\textbf{\checkmark}} & \textcolor{white}{\textbf{Objectif}} &
+ \textcolor{white}{\textbf{Étapes clés}} & \textcolor{white}{\textbf{Avanc.}} &
+ \textcolor{white}{\textbf{Commentaire}}\\}
+
+\title{\textbf{Feuille de route --- Travaux restants}\\[2mm]
+\large Projet PROTOVA : ProtoVA1 \& ProtoVA2 (perception, navigation, V2V)}
+\author{Douae Sebti --- ALTEN Labs}
+\date{3 juillet 2026}
+
+\begin{document}
+\maketitle
+\vspace{-4pt}
+
+\begin{center}\small
+Légende : \ok~fait \quad \tdo~à faire \quad|\quad
+\Fait{} \quad \Enc{} \quad \Bloq{} \quad \Af{}
+\end{center}
+
+% =====================================================================
+\section{ProtoVA2 --- plateforme principale (Jetson Orin Nano / ROS 2 Humble)}
+\vspace{2pt}
+{\small
+\begin{tabularx}{\textwidth}{|c|>{\raggedright\arraybackslash}m{2.9cm}|X|c|X|}
+\hline
+\hdr
+\hline
+\ok & Téléop 5G & Dongles 5G + Zenoh + G29 (retour de force) & \Fait & Latence 23--30 ms, 635 Mbit/s, perte $<$1\% \\
+\rowcolor{rowalt}
+\ok & Téléop WiFi & DDS natif (sans Zenoh) & \Fait & Permet la comparaison 5G / WiFi \\
+\ok & Perception LiDAR & Driver \texttt{rplidar} + visualisation RViz & \Fait & RPLIDAR A1, \texttt{/scan} \\
+\rowcolor{rowalt}
+\ok & SLAM & rf2o + EKF + \texttt{slam\_toolbox} + TF & \Fait & Carte d'occupation qui se construit \\
+\ok & Installation Nav2 & \texttt{apt navigation2} & \Fait & Contrôleur Pure Pursuit disponible \\
+\rowcolor{rowalt}
+\ok & V2V --- CAM + alerte & Vanetza + \texttt{v2v\_node} & \Fait & Alerte de proximité (ROS 2) \\
+\ok & V2V --- position dynamique & Odométrie $\rightarrow$ GPS $\rightarrow$ CAM & \Fait & Essai aller-retour validé \\
+\hline
+\rowcolor{rowalt}
+\tdo & \textbf{Carte propre du site} & Conduire + sauver \texttt{.pgm/.yaml} & \Af & L'existante est un PNG sans métadonnées \\
+\tdo & \textbf{Convertisseur Ackermann} & twist Nav2 $\rightarrow$ angle servo $\rightarrow$ Pico & \Af & $\delta=\arctan(L\,\omega/v)$ \\
+\rowcolor{rowalt}
+\tdo & \textbf{Localisation AMCL + costmaps} & Configuration + réglage & \Af & Murs statiques + obstacles LiDAR live \\
+\tdo & \textbf{Navigation Nav2 bout-en-bout} & Objectif RViz $\rightarrow$ conduite auto & \Af & Dépend des 3 lignes ci-dessus \\
+\rowcolor{rowalt}
+\tdo & Transport WiFi gros topics & Profil FastDDS & \Enc & \texttt{/map} ne traverse pas le WiFi \\
+\tdo & V2V --- DENM & Application DENM (freinage / obstacle) & \Af & Géré par Vanetza \\
+\rowcolor{rowalt}
+\tdo & V2V --- sécurité (certificats) & \texttt{certify} : Root CA $\rightarrow$ AA $\rightarrow$ ticket & \Bloq & Besoin de \texttt{libcrypto++-dev} (apt) \\
+\tdo & V2V $\rightarrow$ freinage (AEB) & Alerte $\rightarrow$ freinage automatique & \Af & Nécessite l'ESC alimenté \\
+\rowcolor{rowalt}
+\tdo & Fixer le connecteur LiDAR & Fixation mécanique & \Af & Se débranche lors des manipulations \\
+\hline
+\end{tabularx}}
+
+% =====================================================================
+\section{ProtoVA1 --- en reconstruction (Jetson Nano / ROS 2 Foxy)}
+\vspace{2pt}
+{\small
+\begin{tabularx}{\textwidth}{|c|>{\raggedright\arraybackslash}m{2.9cm}|X|c|X|}
+\hline
+\hdr
+\hline
+\ok & \textbf{Filtre encodeur RC + Schmitt} & KY-040 $\rightarrow$ RC $\rightarrow$ 74HC14 $\rightarrow$ Pico & \Fait & \textbf{80 ticks/tour validé, sens détecté} \\
+\hline
+\rowcolor{rowalt}
+\tdo & Monter l'encodeur sur la voiture & Arbre moteur / roue + réduction & \Af & Définir le point de montage \\
+\tdo & Firmware Pico (Arduino) & Compter ticks + vitesse $\rightarrow$ ligne \texttt{MOTION} & \Af & Comme ProtoVA2 \\
+\rowcolor{rowalt}
+\tdo & Node RX (série $\rightarrow$ ROS) & Publier \texttt{/ticks}, \texttt{/velocity} & \Af & Porter le node RX sur Foxy \\
+\tdo & Intégration capteurs & LiDAR / caméra / IMU sous Foxy & \Enc & Architecture identique à ProtoVA2 \\
+\rowcolor{rowalt}
+\tdo & Actionneurs (servo / ESC) & Commande PWM via le Pico & \Enc & Schéma Pico commun aux deux \\
+\tdo & Téléopération (G29 / PS4) & Rejouer la chaîne de commande & \Af & \\
+\rowcolor{rowalt}
+\tdo & Odométrie + localisation & Encodeur + EKF & \Af & Dépend du firmware + RX \\
+\tdo & Navigation & Réactive puis Nav2 & \Af & \\
+\rowcolor{rowalt}
+\tdo & V2V ProtoVA1 $\leftrightarrow$ ProtoVA2 & Origine géoréférencée commune & \Af & Démo « deux vrais véhicules » \\
+\hline
+\end{tabularx}}
+
+% =====================================================================
+\section*{\textcolor{primary}{Priorités proposées}}
+\begin{enumerate}[leftmargin=1.4em]
+\setlength{\itemsep}{1pt}
+\item \textbf{ProtoVA1} : firmware Pico + node RX (exploiter l'encodeur validé) $\rightarrow$ odométrie.
+\item \textbf{ProtoVA2} : convertisseur Ackermann + carte propre $\rightarrow$ \textbf{navigation Nav2 bout-en-bout}.
+\item \textbf{V2V} : débloquer apt $\rightarrow$ sécurité par certificats, puis DENM.
+\end{enumerate}
+
+\end{document}

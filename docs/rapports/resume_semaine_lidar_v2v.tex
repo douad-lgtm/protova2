@@ -1,0 +1,134 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{lightblue}{HTML}{E3F2FD}
+\definecolor{lightgreen}{HTML}{E8F5E9}
+\definecolor{lightorange}{HTML}{FFF3E0}
+
+\titleformat{\section}{\large\bfseries\color{primary}}{\thesection.}{0.6em}{}
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+
+\title{\textbf{Résumé hebdomadaire --- Perception LiDAR, autonomie et V2V}\\
+\large ProtoVA2 (Jetson, ROS\,2 Humble) --- période du 18 au 25 juin 2026}
+\author{Douae Sebti}
+\date{25 juin 2026}
+
+\begin{document}
+\maketitle
+
+\noindent\emph{Document évolutif : mis à jour au fil de l'avancement.}
+\vspace{4pt}\hrule
+
+\section{Mise en service du LiDAR}
+Le LiDAR (RPLIDAR A1, port \texttt{/dev/ttyUSB0}) est la perception de base de
+l'autonomie. Sa mise en route a demandé un \textbf{diagnostic complet} :
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item Panne : la tête tournait mais aucune donnée --- diagnostic par
+        élimination (débit série, droits, ModemManager, sonde série, DTR/RTS)
+        $\rightarrow$ \textbf{connecteur de données desserré}. Réparé par
+        ré-emboîtement.
+  \item \texttt{/scan} validé ($\sim$7,4 Hz, $\sim$1080 points, 0,15--12 m) et
+        \textbf{visualisé dans RViz} (côté PC, WiFi, \emph{Fixed Frame =
+        laser\_frame}).
+\end{itemize}
+
+\section{Première approche d'autonomie : conduite réactive}
+Création d'un module \textbf{follow-the-gap} (paquet \texttt{navigation}, node
+\texttt{follow\_the\_gap}) : lit \texttt{/scan}, vise l'espace libre, publie une
+commande, intégré à l'arbitrage \texttt{twist\_mux} (priorité basse, sous l'AEB et
+le pilote). Validé sur scan synthétique \emph{et} réel ; chaîne complète testée
+(LiDAR $\rightarrow$ décision $\rightarrow$ Pico). \textbf{Conclusion :} approche
+réactive trop limitée (oscillations, évitement d'obstacles peu fiable)
+$\rightarrow$ changement d'approche.
+
+\section{Changement d'approche : navigation Nav2 + SLAM}
+Passage à la \textbf{navigation cartographiée} (standard professionnel) :
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item \textbf{SLAM opérationnel} (\texttt{slam\_toolbox} + odométrie laser rf2o
+        + TF via URDF) : la chaîne \texttt{map$\rightarrow$odom$\rightarrow$
+        base\_link$\rightarrow$laser} est complète et la carte se construit.
+  \item \textbf{Nav2 installé} (planner, controller \emph{Regulated Pure Pursuit}
+        adapté à l'Ackermann, costmaps, AMCL, etc.).
+  \item Point traité : les \textbf{meubles qui changent} sont gérés par les
+        couches \emph{costmap} de Nav2 (carte statique = murs, couche obstacles =
+        LiDAR en direct).
+\end{itemize}
+\begin{tcolorbox}[colback=lightorange,colframe=warning,title=Point ouvert]
+La carte « bureau » fournie est un PNG sans métadonnées (résolution/origine)
+$\rightarrow$ on refait une \textbf{carte propre au SLAM} pour une localisation
+fiable.
+\end{tcolorbox}
+
+\section{Communication V2V (Vanetza, ETSI CAM)}
+En parallèle de l'autonomie, mise en place de la \textbf{communication
+véhicule-à-véhicule} :
+\begin{itemize}[leftmargin=1.4em, nosep]
+  \item Standard européen \textbf{ETSI C-ITS} (messages \textbf{CAM}), via la pile
+        open-source \textbf{Vanetza} --- pas le BSM américain.
+  \item \textbf{Échange de CAM bidirectionnel PC $\leftrightarrow$ Jetson sur
+        WiFi}, sans matériel radio 802.11p (application \texttt{socktap} en UDP).
+  \item \textbf{Intégration ROS2} (\texttt{v2v\_node.py}) : publication des
+        véhicules voisins (\texttt{/v2v/remote\_vehicles}) et \textbf{alerte de
+        proximité} (\texttt{/v2v/alert}). Validé : véhicule à 5 m $\rightarrow$
+        alerte ; à 1,1 km $\rightarrow$ pas d'alerte.
+  \item \textbf{Position dynamique} : ajout d'un fournisseur de position UDP à
+        socktap $\rightarrow$ le CAM porte la position \emph{réelle/évolutive}.
+        Démo validée : un véhicule mobile se rapproche (100 m $\rightarrow$ 3 m) et
+        l'alerte se déclenche au passage sous 10 m.
+\end{itemize}
+
+\section{Récapitulatif}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}X l@{}}
+\toprule
+\textbf{Tâche} & \textbf{Statut} \\
+\midrule
+LiDAR : diagnostic, réparation, \texttt{/scan}, RViz & \textcolor{success}{Terminé} \\
+Conduite réactive (follow\_the\_gap) & \textcolor{success}{Fait} (abandonné au profit de Nav2) \\
+SLAM (cartographie) opérationnel & \textcolor{success}{Fonctionne} \\
+Installation Nav2 & \textcolor{success}{Terminé} \\
+V2V Vanetza : échange CAM + ROS2 + alerte & \textcolor{success}{Fonctionne} \\
+V2V position dynamique (CAM = position réelle) & \textcolor{success}{Fonctionne} \\
+Carte propre du lieu (SLAM) & \textcolor{warning}{À refaire} \\
+Navigation autonome Nav2 (bout en bout) & \textcolor{warning}{À faire} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Perspectives --- semaine du 30 juin 2026}
+\begin{enumerate}[leftmargin=1.6em, nosep]
+  \item \textbf{V2V} : alimenter la position du CAM par l'\textbf{odométrie réelle}
+        (au lieu du simulateur), ajouter les messages \textbf{DENM} (alerte de
+        freinage/obstacle) et la \textbf{sécurité} (\texttt{--security certs},
+        messages signés).
+  \item \textbf{Carte SLAM propre} du lieu (conduite manuelle $\sim$10 min,
+        sauvegarde \texttt{.pgm + .yaml}).
+  \item \textbf{Navigation Nav2 de bout en bout} : convertisseur
+        \emph{twist $\rightarrow$ angle servo} (Ackermann, pour le Pico),
+        localisation AMCL sur la carte, costmaps (murs + obstacles live),
+        objectif envoyé dans RViz.
+  \item \textbf{Couplage} (optionnel) : relier l'alerte V2V au freinage (AEB).
+\end{enumerate}
+
+\paragraph{Documents techniques associés.}
+\texttt{diagnostic\_lidar\_rviz.tex} (LiDAR + RViz), \texttt{rapport\_protova2\_semaine.tex}
+(WiFi + autonomie), \texttt{doc\_v2v\_vanetza.tex} (V2V Vanetza),
+\texttt{fiche\_autonomie\_protova2.tex} (follow\_the\_gap).
+
+\end{document}

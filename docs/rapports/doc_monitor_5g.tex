@@ -1,0 +1,491 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{caption}
+
+\geometry{margin=2.5cm}
+
+\definecolor{codebg}{rgb}{0.95,0.95,0.97}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0.0,0.82}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{codepurple},
+  numberstyle=\tiny\color{codegray},
+  numbers=left,
+  breaklines=true,
+  frame=single,
+  language=Python,
+  showstringspaces=false,
+  tabsize=4,
+}
+
+\title{\textbf{Documentation technique — \texttt{monitor\_5g.py}}\\
+       \large Tableau de bord passif du lien 5G — ProtoVA2}
+\author{ProtoVA2 / Sebtidouae}
+\date{Juin 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Introduction et objectif}
+%────────────────────────────────────────────────────────────────────────────
+
+\texttt{monitor\_5g.py} est un script Python tournant sur le \textbf{Jetson Nano} (embarqué
+sur la voiture) dans le cadre de la démonstration de téléopération 5G ProtoVA2.
+
+Son rôle est de \textbf{surveiller passivement} le lien 5G qui relie :
+\begin{itemize}
+  \item le \textbf{PC opérateur} (adresse~: \texttt{172.16.48.7}) équipé du volant G29,
+  \item le \textbf{Jetson Nano} (adresse~: \texttt{172.16.48.6}) à bord du véhicule.
+\end{itemize}
+
+Le lien 5G est assuré par deux dongles Quectel RM530N-GL (identifiant USB~:
+\texttt{2c7c:0801}). La pile de communication applicative utilise ROS~2 Humble via Zenoh
+(\texttt{rmw\_zenoh\_cpp}, \texttt{ROS\_DOMAIN\_ID=125}).
+
+Le script \textbf{ne génère pas de trafic test}~; il lit uniquement les compteurs du système
+d'exploitation et les flux déjà présents. Un tableau de bord web est servi sur le port
+\textbf{8088} (accessible depuis le PC~: \href{http://172.16.48.6:8088}{http://172.16.48.6:8088}).
+
+\subsection{Métriques collectées}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Métrique} & \textbf{Source} & \textbf{Unité} \\
+\midrule
+Latence ICMP (RTT) & \texttt{ping} vers le PC & ms \\
+Latence TCP Zenoh  & \texttt{ss -tin} (kernel) & ms \\
+Débit RX/TX passif & Compteurs sysfs (\texttt{/sys/class/net}) & Mbps \\
+Paquets/s RX/TX    & Compteurs sysfs & pqt/s \\
+Perte paquets ICMP & Calcul fenêtre glissante & \% \\
+Retransmissions TCP & \texttt{ss -tin} & /s \\
+Fréquence \texttt{/joy} & \texttt{ros2 topic hz} & Hz \\
+Fréquence \texttt{/cmd\_vel} & \texttt{ros2 topic hz} & Hz \\
+CPU Jetson & \texttt{/proc/stat} & \% \\
+Débit iperf3 (opt.) & \texttt{iperf3} client & Mbps \\
+\bottomrule
+\end{tabular}
+\caption{Métriques collectées par \texttt{monitor\_5g.py}}
+\end{table}
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Architecture générale}
+%────────────────────────────────────────────────────────────────────────────
+
+Le programme repose sur un modèle \textbf{multi-thread producteur/consommateur}.
+Plusieurs threads \emph{producteurs} collectent des métriques en parallèle et alimentent
+une structure partagée (\texttt{deque}). Le thread \emph{consommateur} principal assemble
+les échantillons et les publie via un serveur HTTP.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.4cm and 1.8cm,
+  box/.style={draw, rounded corners=4pt, fill=blue!8, minimum width=3cm,
+              minimum height=0.8cm, font=\small},
+  arr/.style={-{Latex}, thick},
+]
+  \node[box] (ping)  {PingThread};
+  \node[box, below=of ping] (ros1)  {RosHzThread (/joy)};
+  \node[box, below=of ros1] (ros2)  {RosHzThread (/cmd\_vel)};
+  \node[box, below=of ros2] (iperf) {IperfThread};
+
+  \node[box, fill=orange!15, right=3cm of ros1] (main) {Main loop\\(0.5 s)};
+  \node[box, fill=green!15,  right=2.5cm of main] (http) {HTTP Server\\(ThreadingMixIn)};
+  \node[box, fill=gray!15,   below=1cm of main] (dq) {\texttt{deque} SAMPLES\\(2400 pts / 20 min)};
+
+  \draw[arr] (ping)  -- node[above,font=\tiny]{rtt, replies} (main);
+  \draw[arr] (ros1)  -- (main);
+  \draw[arr] (ros2)  -- (main);
+  \draw[arr] (iperf) -- node[below,font=\tiny]{dl, ul} (main);
+
+  \draw[arr] (main) -- node[right,font=\tiny]{sample dict} (dq);
+  \draw[arr] (dq)   -- node[above,font=\tiny]{/data} (http);
+
+  \node[box, fill=yellow!15, right=2.5cm of http] (browser) {Navigateur PC\\:8088};
+  \draw[arr] (http) -- (browser);
+  \draw[arr] (browser) |- node[font=\tiny,right]{/trigger-iperf} (iperf);
+\end{tikzpicture}
+\caption{Architecture en threads de \texttt{monitor\_5g.py}}
+\end{figure}
+
+La synchronisation entre threads utilise un \texttt{threading.Lock} (\texttt{LOCK}) qui
+protège les accès concurrents à \texttt{SAMPLES}.
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Détection de l'interface 5G}
+%────────────────────────────────────────────────────────────────────────────
+
+\begin{lstlisting}[caption={Fonction \texttt{find\_iface()}}]
+def find_iface(preferred='5g0'):
+    if os.path.isdir('/sys/class/net/%s' % preferred):
+        return preferred
+    try:
+        for iface in os.listdir('/sys/class/net'):
+            if not iface.startswith('enx'):
+                continue
+            dev = '/sys/class/net/%s/device' % iface
+            for _ in range(4):
+                try:
+                    with open(os.path.join(dev, 'idVendor')) as f:
+                        if f.read().strip() == '2c7c':
+                            return iface
+                except OSError:
+                    pass
+                dev = os.path.join(dev, '..')
+    except OSError:
+        pass
+    return None
+\end{lstlisting}
+
+Linux expose les interfaces réseau dans \texttt{/sys/class/net/}. Le dongle Quectel
+apparaît avec le préfixe \texttt{enx} (Ethernet-over-USB avec adresse MAC encodée). La
+fonction remonte l'arbre des périphériques USB jusqu'à 4 niveaux pour lire
+\texttt{idVendor} (\texttt{2c7c} = Quectel). Si udev a renommé l'interface en
+\texttt{5g0}, elle est détectée immédiatement.
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Mesure passive du débit réseau}
+%────────────────────────────────────────────────────────────────────────────
+
+\subsection{Lecture des compteurs sysfs}
+
+Le noyau Linux maintient des compteurs cumulatifs d'octets et de paquets par interface~:
+
+\begin{lstlisting}[caption={Lecture des compteurs noyau}]
+def net_stats(iface):
+    base = '/sys/class/net/%s/statistics/' % iface
+    def rd(name):
+        with open(base + name) as f:
+            return int(f.read())
+    return rd('rx_bytes'), rd('tx_bytes'), rd('rx_packets'), rd('tx_packets')
+\end{lstlisting}
+
+Ces compteurs sont \textbf{monotones croissants} (remis à zéro uniquement au redémarrage).
+Pour obtenir un débit instantané, on calcule l'incrément entre deux lectures successives.
+
+\subsection{Formule du débit}
+
+Soient $B^{rx}_k$ le nombre d'octets reçus à l'instant $t_k$ et $\Delta t = t_k - t_{k-1}$.
+Le débit RX en Mbit/s est~:
+
+\begin{equation}
+  \boxed{D^{rx}_{Mbps}(t_k) = \frac{(B^{rx}_k - B^{rx}_{k-1}) \times 8}{\Delta t \times 10^6}}
+\end{equation}
+
+Le facteur $\times 8$ convertit les \textbf{octets} en \textbf{bits}.
+La division par $10^6$ donne des \textbf{Mégabits par seconde}.
+
+De même pour TX~:
+\begin{equation}
+  D^{tx}_{Mbps}(t_k) = \frac{(B^{tx}_k - B^{tx}_{k-1}) \times 8}{\Delta t \times 10^6}
+\end{equation}
+
+La charge en paquets/s~:
+\begin{equation}
+  C^{rx}(t_k) = \frac{P^{rx}_k - P^{rx}_{k-1}}{\Delta t}, \qquad
+  C^{tx}(t_k) = \frac{P^{tx}_k - P^{tx}_{k-1}}{\Delta t}
+\end{equation}
+
+\textbf{Remarque importante~:} La mesure passive reflète le trafic \emph{applicatif réel}
+(messages ROS, handshakes Zenoh, pings ICMP). Pendant la téléopération sans caméra, ce
+trafic est de l'ordre de quelques dizaines de kbit/s — le lien 5G n'est pas saturé.
+
+\subsection{Précision du stockage}
+
+Les valeurs sont arrondies avant injection dans \texttt{SAMPLES}~:
+
+\begin{lstlisting}
+def rnd(v, d):
+    return None if v is None else round(v, d)
+
+'rx': rnd(rx, 4), 'tx': rnd(tx, 4),
+\end{lstlisting}
+
+4 décimales en Mbps permettent de résoudre $0{,}0001\ \text{Mbps} = 100\ \text{bit/s}$,
+suffisant pour capturer le trafic ICMP et ROS (quelques kbit/s).
+
+%────────────────────────────────────────────────────────────────────────────
+\section{PingThread — Latence et perte ICMP}
+%────────────────────────────────────────────────────────────────────────────
+
+\subsection{Mesure du RTT}
+
+Un processus \texttt{ping} continu est lancé avec l'intervalle configuré (défaut~: 0,5~s).
+Chaque ligne de sortie est analysée par expression régulière~:
+
+\begin{lstlisting}
+RE_PING = re.compile(r'time=([\d.]+)\s*ms')
+\end{lstlisting}
+
+Le RTT retourné par \texttt{ping} est le \textbf{Round-Trip Time} ICMP, c'est-à-dire le
+temps entre l'émission d'un paquet \texttt{ECHO\_REQUEST} et la réception du
+\texttt{ECHO\_REPLY}~:
+\begin{equation}
+  \text{RTT}_{ICMP} = t_{reply} - t_{request}
+\end{equation}
+
+\subsection{Taux de perte par fenêtre glissante}
+
+\begin{lstlisting}
+def loss(self, window=10.0):
+    now = time.time()
+    expected = min(window, now - START) / self.interval
+    if expected < 4:
+        return None
+    got = sum(1 for t in self.replies if t > now - window)
+    return max(0.0, 100.0 * (1 - got / expected))
+\end{lstlisting}
+
+Sur une fenêtre temporelle $W = 10\ \text{s}$, le nombre de réponses attendues est~:
+\begin{equation}
+  N_{attendu} = \frac{\min(W,\ t_{now} - t_{start})}{T_{ping}}
+\end{equation}
+
+où $T_{ping}$ est l'intervalle entre pings. Le nombre de réponses effectivement reçues~:
+\begin{equation}
+  N_{reçu} = \bigl|\{t_i \in \texttt{replies}\ :\ t_{now} - W < t_i \leq t_{now}\}\bigr|
+\end{equation}
+
+Le taux de perte~:
+\begin{equation}
+  \boxed{\text{loss}(\%) = \max\!\left(0,\ \left(1 - \frac{N_{reçu}}{N_{attendu}}\right) \times 100\right)}
+\end{equation}
+
+La condition $N_{attendu} \geq 4$ évite les valeurs aberrantes en début de session.
+
+%────────────────────────────────────────────────────────────────────────────
+\section{ss\_info — Latence TCP du lien Zenoh}
+%────────────────────────────────────────────────────────────────────────────
+
+\begin{lstlisting}[caption={Extraction du RTT TCP kernel}]
+def ss_info(target):
+    out = subprocess.run(['ss', '-tin', 'dst', target],
+                         capture_output=True, text=True, timeout=2).stdout
+    rtts = [float(m) for m in re.findall(r'rtt:([\d.]+)/', out)]
+    retx = sum(int(m) for m in re.findall(r'retrans:\d+/(\d+)', out))
+    estab = ('ESTAB' in out) and (':7447' in out)
+    return (min(rtts) if rtts else None), retx, estab
+\end{lstlisting}
+
+La commande \texttt{ss -tin dst \{IP\}} interroge les statistiques des sockets TCP
+actifs vers le PC. Le noyau calcule et maintient un \textbf{SRTT} (Smoothed RTT) selon
+l'algorithme de Jacobson (RFC~6298)~:
+
+\begin{align}
+  \text{SRTT}_{n+1} &= (1-\alpha)\,\text{SRTT}_n + \alpha\,R_n, \quad \alpha = \tfrac{1}{8} \\
+  \text{RTTVAR}_{n+1} &= (1-\beta)\,\text{RTTVAR}_n + \beta\,|\text{SRTT}_n - R_n|, \quad \beta = \tfrac{1}{4} \\
+  \text{RTO} &= \text{SRTT} + 4\,\text{RTTVAR}
+\end{align}
+
+où $R_n$ est le RTT mesuré du $n$-ième ACK. La valeur lue via \texttt{ss} est ce
+\texttt{SRTT} en millisecondes, qui représente la latence TCP \emph{lissée} du lien Zenoh
+(port~7447).
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Mesure de l'utilisation CPU}
+%────────────────────────────────────────────────────────────────────────────
+
+\begin{lstlisting}[caption={Lecture de /proc/stat}]
+def cpu_stat():
+    with open('/proc/stat') as f:
+        parts = f.readline().split()[1:]
+    vals = [int(x) for x in parts]
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+    return idle, sum(vals)
+\end{lstlisting}
+
+\texttt{/proc/stat} expose les \emph{jiffies} CPU cumulatifs par état (user, nice, system,
+idle, iowait, \ldots). Entre deux lectures~:
+
+\begin{equation}
+  \Delta\text{idle} = \text{idle}_k - \text{idle}_{k-1}, \qquad
+  \Delta\text{total} = \text{total}_k - \text{total}_{k-1}
+\end{equation}
+
+\begin{equation}
+  \boxed{\text{CPU}(\%) = \left(1 - \frac{\Delta\text{idle}}{\Delta\text{total}}\right) \times 100}
+\end{equation}
+
+On additionne \texttt{idle} (champ~4) et \texttt{iowait} (champ~5) car les deux
+correspondent à des cycles où le CPU n'exécute pas de code applicatif.
+
+%────────────────────────────────────────────────────────────────────────────
+\section{IperfThread — Mesure périodique du débit iperf3}
+%────────────────────────────────────────────────────────────────────────────
+
+Ajouté en juin~2026, ce thread optionnel effectue des tests \texttt{iperf3} périodiques
+(défaut~: toutes les 60~s, durée 3~s par sens) pour mesurer la \emph{capacité} du lien
+en complément du trafic passif.
+
+\begin{lstlisting}[caption={Cœur de la mesure iperf3}]
+def _run(self, reverse):
+    cmd = ['iperf3', '-c', self.server, '-t', str(self.duration), '-J']
+    if reverse:
+        cmd.append('-R')
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       timeout=self.duration + 15)
+    end = json.loads(r.stdout).get('end', {})
+    key = 'sum_received' if reverse else 'sum_sent'
+    bps = (end.get(key) or end.get('sum') or {}).get('bits_per_second')
+    return round(bps / 1e6, 2) if bps else None
+\end{lstlisting}
+
+L'\texttt{iperf3} produit un JSON contenant le champ \texttt{bits\_per\_second} (bit/s).
+La conversion en Mbps~:
+\begin{equation}
+  \boxed{D_{iperf,Mbps} = \frac{\texttt{bits\_per\_second}}{10^6}}
+\end{equation}
+
+\paragraph{Mécanisme trigger.}
+Un \texttt{threading.Event} permet de déclencher un test à la demande (bouton du
+dashboard) sans redémarrer le thread~:
+
+\begin{lstlisting}
+def trigger(self):
+    if not self.running:
+        self._trigger.set()
+
+def run(self):
+    while True:
+        self._trigger.wait(timeout=self.interval)  # bloque ou expire
+        self._trigger.clear()
+        self.running = True
+        # ... tests ...
+        self.running = False
+\end{lstlisting}
+
+\texttt{Event.wait(timeout=T)} se débloque soit par \texttt{set()} (déclenchement
+immédiat), soit après expiration de $T$ secondes (test périodique automatique).
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Serveur HTTP et dashboard}
+%────────────────────────────────────────────────────────────────────────────
+
+\subsection{Endpoints}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{URL} & \textbf{Méthode} & \textbf{Réponse} \\
+\midrule
+\texttt{/} ou \texttt{/index.html} & GET & Page HTML du dashboard \\
+\texttt{/data?since=T} & GET & JSON des échantillons depuis $t > T$ \\
+\texttt{/trigger-iperf} & GET & Déclenche un test iperf immédiat \\
+\bottomrule
+\end{tabular}
+\caption{API HTTP de \texttt{monitor\_5g.py}}
+\end{table}
+
+\subsection{Affichage des courbes — axe temporel}
+
+Le dashboard utilise un \texttt{<canvas>} HTML5. Pour un échantillon à l'instant $t$,
+dans une fenêtre de $W = 180\ \text{s}$, les coordonnées pixels sont~:
+
+\begin{equation}
+  x_{pixel} = L + PW \cdot \frac{t - (t_{now} - W)}{W}
+\end{equation}
+\begin{equation}
+  y_{pixel} = T + PH \cdot \left(1 - \frac{v}{v_{max}}\right)
+\end{equation}
+
+où $L$, $T$ sont les marges gauche et haute, $PW$ et $PH$ les dimensions de la zone de
+tracé, et $v_{max} = 1{,}15 \times \max(v_i)$ (10\% de marge haute).
+
+\subsection{Formatage adaptatif des débits}
+
+\begin{lstlisting}[language=JavaScript, caption={Auto-scaling JS}]
+const mb = v => v == null ? '—'
+           : v >= 1 ? v.toFixed(2) + ' Mbps'
+           : (v * 1000).toFixed(0) + ' kb/s';
+\end{lstlisting}
+
+Si $v < 1\ \text{Mbps}$, la valeur est multipliée par 1000 et affichée en kb/s,
+évitant d'afficher \texttt{0.00 Mbps} pour le trafic ROS léger.
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Résumé des formules mathématiques}
+%────────────────────────────────────────────────────────────────────────────
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{4cm}p{7cm}l}
+\toprule
+\textbf{Grandeur} & \textbf{Formule} & \textbf{Unité} \\
+\midrule
+Débit passif &
+$D = \dfrac{\Delta B \times 8}{\Delta t \times 10^6}$ &
+Mbps \\[10pt]
+Charge &
+$C = \dfrac{\Delta P}{\Delta t}$ &
+pqt/s \\[10pt]
+Perte paquets &
+$\text{loss} = \max\!\left(0, 1 - \dfrac{N_{reçu}}{N_{attendu}}\right) \times 100$ &
+\% \\[10pt]
+CPU &
+$\text{cpu} = \left(1 - \dfrac{\Delta\text{idle}}{\Delta\text{total}}\right) \times 100$ &
+\% \\[10pt]
+Débit iperf3 &
+$D_{iperf} = \dfrac{\texttt{bps}}{10^6}$ &
+Mbps \\[10pt]
+Position X canvas &
+$x = L + PW \cdot \dfrac{t - (t_{now}-W)}{W}$ &
+px \\[10pt]
+Position Y canvas &
+$y = T + PH \cdot \left(1 - \dfrac{v}{v_{max}}\right)$ &
+px \\
+\bottomrule
+\end{tabular}
+\caption{Toutes les formules mathématiques de \texttt{monitor\_5g.py}}
+\end{table}
+
+%────────────────────────────────────────────────────────────────────────────
+\section{Utilisation et limitations}
+%────────────────────────────────────────────────────────────────────────────
+
+\subsection{Commandes}
+\begin{lstlisting}[language=bash]
+# Sur le Jetson
+nohup python3 ~/monitor_5g.py >> ~/monitor_5g.log 2>&1 &
+
+# Options
+python3 ~/monitor_5g.py --no-ros        # sans ROS Hz
+python3 ~/monitor_5g.py --no-iperf      # sans iperf3
+python3 ~/monitor_5g.py --iperf-interval 30 --iperf-duration 3
+
+# Sur le PC (requis pour la courbe iperf3)
+iperf3 -s
+\end{lstlisting}
+
+\subsection{Limitations}
+\begin{itemize}
+  \item Le trafic passif mesure \emph{tous} les flux sur le dongle (y compris les pings
+        du monitor lui-même) — il n'isole pas le trafic ROS.
+  \item Les tests iperf3 perturbent légèrement la latence pendant leur durée (3~s).
+  \item Le RTT TCP Zenoh n'est disponible que si le socket vers le PC est actif.
+\end{itemize}
+
+\end{document}

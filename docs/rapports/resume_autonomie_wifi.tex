@@ -1,0 +1,258 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{hyperref}
+
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegreen}{rgb}{0.0,0.50,0.0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  numberstyle=\tiny\color{codegray},
+  breaklines=true,
+  frame=single,
+  showstringspaces=false,
+  tabsize=2,
+  columns=fullflexible,
+}
+
+\title{\textbf{Résumé technique — Démonstration WiFi \\ et conduite autonome réactive (ProtoVA2)}}
+\author{Douae Sebti}
+\date{18 juin 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Ce document résume les travaux réalisés sur le véhicule ProtoVA2
+(Jetson Orin Nano, ROS\,2 Humble) : (1) mise en place d'une démonstration de
+téléopération sur \textbf{WiFi} en DDS natif (sans Zenoh), (2) correction d'un
+plantage de \texttt{rqt} sur le flux caméra, (3) inspection du LiDAR et
+diagnostic matériel, et (4) création d'un premier module de \textbf{conduite
+autonome réactive} de type \emph{follow-the-gap}, intégré à l'arbitrage
+\texttt{twist\_mux} et validé hors matériel par un scan synthétique.
+\end{abstract}
+
+\section{Contexte}
+Le ProtoVA2 fonctionne sous ROS\,2 Humble (\texttt{ROS\_DOMAIN\_ID=125}). La
+téléopération 5G existante repose sur \texttt{rmw\_zenoh\_cpp} (Zenoh en
+hub-and-spoke), car le cellulaire bloque le multicast UDP. L'objectif de cette
+session était de préparer une démonstration \textbf{sur WiFi} puis de démarrer
+le volet \textbf{autonomie}.
+
+\section{Démonstration WiFi (DDS natif)}
+Sur un réseau local WiFi, la découverte ROS\,2 par multicast fonctionne : Zenoh
+n'est donc pas nécessaire. On utilise le middleware par défaut
+\texttt{rmw\_fastrtps\_cpp}.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item PC : \texttt{10.37.11.32} \quad — \quad Jetson : \texttt{10.37.11.28}
+        (même sous-réseau \texttt{10.37.11.0/24}).
+  \item Variables communes à tous les scripts WiFi :
+\begin{lstlisting}[language=bash]
+export ROS_DOMAIN_ID=125
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+unset ZENOH_SESSION_CONFIG_URI ZENOH_ROUTER_CONFIG_URI ZENOH_CONFIG
+\end{lstlisting}
+\end{itemize}
+
+\subsection{Scripts créés}
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Machine} & \textbf{Fichier} & \textbf{Rôle} \\
+\midrule
+PC     & \texttt{\textasciitilde/protova2/launch\_pc\_wifi.sh}  & \texttt{joy\_node} + retour de force G29 \\
+Jetson & \texttt{\textasciitilde/launch\_car\_wifi.sh}          & \texttt{g29\_teleop}, TX, RX, \texttt{twist\_mux}, caméra Orbbec \\
+PC     & \texttt{\textasciitilde/protova2/view\_camera\_wifi.sh}& Visualiseur caméra (\texttt{rqt\_image\_view}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent Tous reprennent les conventions des scripts 5G (nettoyage des nodes
+résiduels, \texttt{trap}+\texttt{wait} pour un arrêt propre au \texttt{Ctrl+C}),
+mais \textbf{sans Zenoh ni configuration 5G} (pas de dongle, pas de correctif
+d'adressage /30$\rightarrow$/28, pas de watchdog).
+
+\subsection{Validation}
+Test de bout en bout : le PC découvre l'ensemble des topics et nodes du
+véhicule via FastDDS, et les données circulent réellement :
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Vérification & Résultat \\
+\midrule
+Découverte des 35 topics / 7 nodes & \textcolor{success}{OK} \\
+\texttt{/imu} (Jetson $\rightarrow$ PC) & $\sim$37--59 Hz \\
+\texttt{/camera/color/camera\_info} & 15 Hz (= 15 fps configurés) \\
+\texttt{/velocity} & message reçu \\
+Isolation du point d'accès (AP isolation) & aucune \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Correction du plantage \texttt{rqt} sur la caméra}
+En sélectionnant directement le topic \texttt{/camera/color/image\_raw/compressed},
+\texttt{rqt} plante :
+\begin{lstlisting}
+create_subscription() ... existing topic ... incompatible type CompressedImage_
+-> invalid allocator -> terminate (RCLError)
+\end{lstlisting}
+\textbf{Cause :} les topics \texttt{.../compressed}, \texttt{.../theora}, etc. ne
+sont pas des topics indépendants mais des \emph{transports} du topic de base.
+Il faut s'abonner au topic \textbf{de base} et choisir le transport :
+\begin{lstlisting}[language=bash]
+ros2 run rqt_image_view rqt_image_view /camera/color/image_raw \
+  _image_transport:=compressed
+\end{lstlisting}
+C'est exactement ce que fait le script \texttt{view\_camera\_wifi.sh} (le
+transport \texttt{compressed} est en outre recommandé sur WiFi, plus léger que
+le brut 1280$\times$720).
+
+\section{Inspection du LiDAR et diagnostic}
+\begin{itemize}[leftmargin=1.4em]
+  \item Le LiDAR est un \textbf{RPLIDAR} relié par un pont USB-série Silicon Labs
+        \textbf{CP2102} (\texttt{10c4:ea60}) sur \texttt{/dev/ttyUSB0}.
+        (Le Raspberry Pi Pico, lui, est sur \texttt{/dev/ttyACM0}.)
+  \item Le pilote \texttt{rplidar\_ros} est déjà compilé dans l'espace de travail.
+  \item \textbf{Montage « moteur à l'arrière »} : l'angle brut 0\textdegree{} pointe
+        vers l'\emph{arrière}; on ajoute 180\textdegree{} pour ramener l'avant du
+        robot à 0\textdegree{} (cohérent avec \texttt{detection/dist\_min.py}).
+\end{itemize}
+
+\noindent\textbf{Diagnostic :} à tous les débits standard (115200, 256000,
+460800, 1\,000\,000), le port s'ouvre mais le scanner ne répond pas
+(\texttt{SL\_RESULT\_OPERATION\_TIMEOUT} sur \texttt{getDeviceInfo}). Les droits
+sont corrects (utilisateur dans le groupe \texttt{dialout}). \textbf{La piste est
+matérielle} (alimentation du moteur / câble / tête non connectée) — à vérifier
+physiquement, avec le modèle exact (A1/A2/A3/S1/S2/C1) qui fixe le débit.
+
+\section{Conduite autonome réactive : \texttt{follow\_the\_gap}}
+Direction retenue : \textbf{conduite réactive} (pas de carte SLAM/Nav2 pour
+l'instant). Le paquet \texttt{navigation}, jusqu'ici vide, a été créé
+(\texttt{ament\_python}) avec le node \texttt{follow\_the\_gap}.
+
+\subsection{Conventions de commande (rétro-ingénierie)}
+À partir de \texttt{G29Teleop.py}, \texttt{TX.py} et \texttt{AEB.py} :
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\texttt{geometry\_msgs/Twist} & Signification (tous les topics \texttt{/cmd\_vel*}) \\
+\midrule
+\texttt{angular.z} & angle \textbf{servo} de direction : centre $=83$, plage $[28;138]$. \\
+                   & $<83$ = droite, $>83$ = gauche (sens trigonométrique). \\
+\texttt{linear.x}  & \textbf{vitesse} en m/s (téléop. avant 0,06--0,20 m/s, lent). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Le node \texttt{TX} convertit ensuite ces valeurs en PWM pour le Pico
+(\texttt{/dev/ttyACM0}) via une table d'interpolation PCHIP.
+
+\subsection{Algorithme}
+\begin{enumerate}[leftmargin=1.6em]
+  \item lecture de \texttt{/scan}, conservation du secteur avant ($\pm$90\textdegree),
+        nettoyage (inf/NaN $\rightarrow$ portée max, lissage) ;
+  \item \textbf{bulle de sécurité} autour du point le plus proche (on l'annule
+        pour ne jamais viser un obstacle) ;
+  \item recherche du \textbf{plus grand espace libre} (gap) ;
+  \item visée du \textbf{centre du plateau le plus lointain} du gap
+        $\rightarrow$ cap, converti en angle servo ;
+  \item \textbf{vitesse} modulée par le dégagement avant et l'intensité du
+        braquage ; arrêt si l'avant $<0{,}35$ m ; watchdog d'arrêt si plus de
+        scan pendant 0,5 s.
+\end{enumerate}
+Sortie : \texttt{/cmd\_vel\_auto}.
+\emph{Remarque :} viser le simple maximum (\texttt{argmax}) faisait braquer vers
+le bord du gap, côté obstacle ; viser le \emph{centre du plateau} corrige ce
+défaut.
+
+\subsection{Intégration à \texttt{twist\_mux}}
+Ajout de l'entrée autonome en \textbf{priorité la plus basse}, afin que le pilote
+et surtout l'AEB puissent reprendre la main à tout moment.
+\begin{center}
+\begin{tabular}{@{}llc@{}}
+\toprule
+Source & Topic & Priorité \\
+\midrule
+AEB (sécurité)          & \texttt{/cmd\_vel\_aeb}  & 255 \\
+Pilote PS4              & \texttt{/cmd\_vel\_ps4}  & 60 \\
+Pilote G29             & \texttt{/cmd\_vel\_G29}  & 30 \\
+\textbf{Autonome (nouveau)} & \texttt{/cmd\_vel\_auto} & \textbf{10} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Hiérarchie de sécurité : \textbf{AEB $>$ pilote $>$ autonome}.
+
+\subsection{Validation hors matériel (scan synthétique)}
+Le LiDAR étant indisponible, le node a été validé avec un \texttt{/scan} simulé :
+\begin{center}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Scénario & \texttt{linear.x} & servo (\texttt{z}) & Comportement \\
+\midrule
+Champ libre        & 0,15 m/s & 92 ($\approx$ centre) & tout droit \\
+Mur devant         & 0,0 (stop) & 138 & arrêt + braquage \\
+Obstacle à droite  & 0,11 m/s & 138 (gauche) & s'écarte à gauche \\
+Obstacle à gauche  & 0,10 m/s & 28 (droite)  & s'écarte à droite \\
+\bottomrule
+\end{tabular}
+\end{center}
+Tous les comportements sont conformes (\textcolor{success}{OK}), aucune erreur.
+
+\section{Livrables et scripts}
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Fichier} & \textbf{Description} \\
+\midrule
+\texttt{launch\_pc\_wifi.sh} (PC)        & démo WiFi côté PC \\
+\texttt{launch\_car\_wifi.sh} (Jetson)   & démo WiFi côté véhicule \\
+\texttt{view\_camera\_wifi.sh} (PC)      & visualiseur caméra (anti-plantage rqt) \\
+\texttt{launch\_lidar.sh} (Jetson)       & démarrage RPLIDAR (débit paramétrable) \\
+\texttt{launch\_autonomous.sh} (Jetson)  & chaîne autonome complète \\
+\texttt{src/navigation/} (paquet)        & \texttt{follow\_the\_gap} + launch \\
+\texttt{twist\_mux.yaml}                 & ajout de l'entrée \texttt{/cmd\_vel\_auto} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent Chaîne lancée par \texttt{launch\_autonomous.sh} :
+\begin{center}
+\texttt{rplidar $\rightarrow$ dist\_min $\rightarrow$ AEB \;|\; follow\_the\_gap}
+$\;\rightarrow\;$ \texttt{twist\_mux} $\rightarrow$ \texttt{TX} $\rightarrow$ Pico,
+avec \texttt{RX} $\rightarrow$ \texttt{/velocity}.
+\end{center}
+
+\section{Prochaines étapes}
+\begin{enumerate}[leftmargin=1.6em]
+  \item Vérifier physiquement le LiDAR (modèle + rotation), puis confirmer
+        \texttt{/scan} (\texttt{ros2 topic hz /scan}).
+  \item Premier essai de \texttt{launch\_autonomous.sh} \textbf{roues en l'air}
+        pour observer direction et vitesse avant tout déplacement réel.
+  \item Réglage des paramètres (\texttt{bubble\_radius}, \texttt{gap\_threshold},
+        \texttt{steer\_gain}, vitesses) sur données réelles.
+\end{enumerate}
+
+\end{document}

@@ -1,0 +1,344 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{amsmath}
+\usepackage[top=2.2cm, bottom=2.2cm, left=2.3cm, right=2.3cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage[most]{tcolorbox}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary, citecolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{codebg}{HTML}{F6F6F6}
+
+\lstset{backgroundcolor=\color{codebg}, basicstyle=\ttfamily\footnotesize,
+  breaklines=true, frame=single, framesep=4pt, showstringspaces=false,
+  columns=fullflexible, keywordstyle=\color{primary}}
+
+\titleformat{\section}{\large\bfseries\color{primary}}{\thesection.}{0.6em}{}
+\titlespacing*{\section}{0pt}{14pt}{5pt}
+\titleformat{\subsection}{\bfseries}{\thesubsection.}{0.5em}{}
+\titlespacing*{\subsection}{0pt}{9pt}{3pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\newtcolorbox{note}[1][Note]{colback=blue!4, colframe=primary, fonttitle=\bfseries,
+  title=#1, boxrule=0.5pt, left=6pt, right=6pt, top=4pt, bottom=4pt}
+\newtcolorbox{piege}[1][Piège rencontré]{colback=orange!5, colframe=warning, fonttitle=\bfseries,
+  title=#1, boxrule=0.5pt, left=6pt, right=6pt, top=4pt, bottom=4pt}
+
+\title{\vspace{-1cm}\textbf{Communication V2V par messages CAM \\[2pt]
+\large De l'enrichissement du message à la démonstration sur le terrain}}
+\author{Douae Sebti}
+\date{10 juillet 2026}
+
+\begin{document}
+\maketitle
+\vspace{-6pt}\hrule\vspace{10pt}
+
+\begin{note}[En une phrase]
+J'ai fait en sorte que ma voiture robot annonce en continu, aux véhicules voisins, non
+seulement \emph{où} elle est, mais aussi \emph{dans quelle direction} et \emph{à quelle
+vitesse} elle roule --- puis je l'ai démontré en direct entre la voiture et le PC.
+\end{note}
+
+\begin{note}[Ma contribution]
+Ce travail V2V --- intégration de Vanetza, pont entre ROS et les messages CAM, enrichissement
+du message et démonstrations --- constitue ma contribution au projet ProtoVA.
+\end{note}
+
+\tableofcontents
+\vspace{8pt}\hrule
+
+% =====================================================================
+\section{Pourquoi ce travail}
+
+\subsection{Le contexte : la communication V2V}
+Un système \textbf{V2V} (\emph{vehicle-to-vehicle}) permet aux véhicules de \textbf{se parler}
+directement pour coopérer : anticiper les collisions, se signaler un freinage, connaître la
+position des autres. En Europe, la norme est \textbf{ETSI C-ITS}, qui définit deux messages
+principaux :
+\begin{itemize}[leftmargin=1.6em]
+  \item le \textbf{CAM} (\emph{Cooperative Awareness Message}) : le message « je suis là »,
+        émis en continu (environ 1 fois par seconde), qui décrit l'état du véhicule ;
+  \item le \textbf{DENM} (\emph{Decentralized Environmental Notification Message}) : le message
+        d'événement (« attention, freinage », « obstacle »).
+\end{itemize}
+Pour cela, j'ai intégré \textbf{Vanetza}, une implémentation open-source de cette pile, et son
+application \code{socktap} qui envoie de vrais CAM ETSI sur un réseau ordinaire (WiFi), sans
+matériel radio spécialisé (pas de 802.11p).
+
+\subsection{Le problème que je voulais résoudre}
+Au départ, le CAM émis par la voiture contenait bien une \textbf{position} qui bougeait, mais
+les champs \textbf{cap} (direction) et \textbf{vitesse} étaient \textbf{codés en dur à zéro}.
+Autrement dit, la voiture disait « je suis ici » mais jamais « je vais par là, à telle
+vitesse ». Or ces deux informations sont essentielles en V2V : sans elles, impossible
+d'anticiper la trajectoire d'un véhicule.
+
+\begin{note}[Ma contribution]
+Faire remonter le cap et la vitesse \textbf{réels}, mesurés par l'odométrie du robot, jusque
+dans le CAM émis --- et le prouver par une démonstration où le PC affiche ces valeurs en
+direct pendant que la voiture roule.
+\end{note}
+
+% =====================================================================
+\section{L'approche utilisée}
+J'ai suivi quelques principes simples pour rester efficace et robuste :
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Modifier le minimum.} Je ne touche pas au protocole Vanetza ; je remplis
+        seulement deux champs déjà prévus par la norme (\code{Heading}, \code{Speed}).
+  \item \textbf{Réutiliser l'existant.} La position circulait déjà de l'odométrie jusqu'au CAM
+        via un petit canal UDP. J'ai \textbf{étendu ce canal} pour y ajouter le cap et la
+        vitesse, plutôt que d'inventer un nouveau mécanisme.
+  \item \textbf{Garder la compatibilité.} L'ancien format (\code{"lat,lon"}) continue de
+        fonctionner ; le nouveau (\code{"lat,lon,cap,vitesse"}) est accepté en plus.
+  \item \textbf{Respecter la norme.} Quand une information n'est pas disponible, j'émets la
+        valeur \emph{« unavailable »} normalisée, pas une valeur fausse.
+  \item \textbf{Vérifier à chaque étape.} Compilation, test d'émission, puis test de réception
+        des deux côtés, avant de passer au terrain.
+\end{enumerate}
+
+% =====================================================================
+\section{Étape par étape : ce que j'ai fait}
+
+\subsection{Étape 1 --- La chaîne de l'information}
+Le cap et la vitesse existent déjà dans l'\textbf{odométrie} du robot (le suivi de son
+déplacement, calculé à partir du LiDAR). Il fallait les acheminer jusqu'au message. La chaîne
+complète que j'ai mise en place :
+
+\begin{lstlisting}[language=bash]
+Odometrie (nav_msgs/Odometry)
+   |   cap = lacet (yaw) de l'orientation ;  vitesse = norme du twist
+   v
+odom_to_gps.py   ->  publie /v2v/my_gps = [lat, lon, cap, vitesse]
+   v
+v2v_node.py      ->  envoie "lat,lon,cap,vitesse" par UDP a socktap
+   v
+socktap (Vanetza)->  remplit les champs Heading et Speed du CAM
+   v
+WiFi (multicast) ->  autre vehicule  ->  CAM recu et decode
+\end{lstlisting}
+
+\subsection{Étape 2 --- Enrichir le message dans Vanetza (C++)}
+Dans \code{cam\_application.cpp}, les deux champs étaient figés :
+\begin{lstlisting}[language=C++]
+bvc.heading.headingValue = 0;   // avant : toujours 0
+bvc.speed.speedValue     = 0;
+\end{lstlisting}
+Je les remplis maintenant depuis la position (\code{course} et \code{speed}), en convertissant
+aux \textbf{unités ETSI} ; si la donnée est absente (NaN), j'émets « unavailable » :
+\begin{lstlisting}[language=C++]
+// cap en 0,1 degre (0..3600), sinon HeadingValue_unavailable (3601)
+double cap = position.course.value().value();
+bvc.heading.headingValue = std::isfinite(cap)
+    ? std::lround(std::fmod(cap,360.0)*10.0) : HeadingValue_unavailable;
+// vitesse en 0,01 m/s (0..16382), sinon SpeedValue_unavailable (16383)
+double v = position.speed.value().value();
+bvc.speed.speedValue = std::isfinite(v)
+    ? std::lround(v*100.0) : SpeedValue_unavailable;
+\end{lstlisting}
+Et dans \code{udp\_position\_provider.cpp}, j'accepte désormais un datagramme à 4 champs :
+\begin{lstlisting}[language=C++]
+int got = std::sscanf(s.c_str(), "%lf,%lf,%lf,%lf", &lat, &lon, &cap, &v);
+if (got >= 2) { /* position */ }
+if (got >= 4) { fix_.course.assign(...); fix_.speed.assign(...); }  // + cap/vitesse
+\end{lstlisting}
+
+\subsection{Étape 3 --- Fournir cap et vitesse côté ROS (Python)}
+Dans \code{odom\_to\_gps.py}, je calcule le cap à partir du lacet du quaternion et la vitesse
+à partir du \emph{twist}, puis je les publie :
+\begin{lstlisting}[language=Python]
+yaw = atan2(2*(qw*qz+qx*qy), 1-2*(qy*qy+qz*qz))   # lacet
+heading = degrees(yaw) % 360.0                     # cap Nord vrai
+speed = hypot(v.x, v.y)                             # vitesse (m/s)
+self.pub.publish(Float64MultiArray(data=[lat, lon, heading, speed]))
+\end{lstlisting}
+\code{v2v\_node.py} transmet ensuite ces quatre valeurs à \code{socktap} par UDP.
+
+\subsection{Étape 4 --- Recompiler des deux côtés}
+J'ai recompilé \code{socktap} \textbf{sur le PC et sur la Jetson} (même version de Vanetza,
+commit identique), avec :
+\begin{lstlisting}[language=bash]
+cd ~/vanetza/build && cmake -DBUILD_SOCKTAP=ON .. && make socktap
+\end{lstlisting}
+Puis j'ai vérifié qu'un envoi de \code{48.7668,11.4320,90.0,5.00} produit bien un CAM avec
+\code{Heading 900} ($=90^\circ$) et \code{Speed 500} ($=5$~m/s).
+
+\subsection{Étape 5 --- La démonstration bidirectionnelle}
+J'ai lancé \code{socktap} en même temps sur les deux machines, chacune affichant les CAM
+\emph{reçus} de l'autre. Résultat : le PC reçoit les CAM de la voiture (station 2) et la
+voiture reçoit ceux du PC (station 1) --- \textbf{échange dans les deux sens, sur WiFi}.
+
+\subsection{Étape 6 --- Le moniteur de terrain}
+Pour rendre la démonstration lisible, j'ai écrit \code{v2v\_car\_monitor.py} (côté PC, sans
+ROS) : il reçoit les CAM de la voiture et affiche un tableau de bord en direct :
+\begin{lstlisting}
+[voiture #2] 48.766796,11.432002 | cap 353.8 N ^ | v 3.00 m/s (10.8 km/h) | dist 4.1 m | *** ALERTE <5m ***
+\end{lstlisting}
+Quand je tourne la voiture, le cap change ; quand je l'accélère, la vitesse monte ; sous 5~m,
+l'alerte se déclenche.
+
+\subsection{Étape 7 --- La vue caméra}
+En complément, j'affiche la caméra de la voiture sur le PC. L'outil rqt posait problème (voir
+les pièges), j'ai donc écrit \code{view\_camera.py} : il s'abonne au flux JPEG, le décode et
+l'affiche. J'ai vérifié : image 720$\times$1280 nette, transmise par WiFi.
+
+% =====================================================================
+\section{Comment ça marche techniquement}
+
+\subsection{Le contenu d'un CAM}
+Un CAM décodé ressemble à ceci (champs principaux) :
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Champ} & \textbf{Exemple} & \textbf{Signification} \\
+\midrule
+Message ID & 2 & c'est un CAM. \\
+Station ID & 2 & identifiant du véhicule émetteur. \\
+Station Type & 5 & voiture. \\
+Latitude / Longitude & $10^{-7}$° & position GPS. \\
+Heading & 900 & cap en $0{,}1^\circ$ $\rightarrow$ $90^\circ$. \\
+Speed & 500 & vitesse en $0{,}01$~m/s $\rightarrow$ $5$~m/s. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Le transport : multicast WiFi}
+\code{socktap} en mode \code{-l udp} diffuse les CAM en \textbf{multicast}
+(\code{239.118.122.97:8947}) : sur le même WiFi, chaque machine reçoit automatiquement les
+trames des autres, sans configuration d'adresses, sans \code{sudo}, sans radio 802.11p.
+
+\subsection{Les valeurs « unavailable »}
+La norme ETSI réserve une valeur spéciale quand une donnée manque : \code{3601} pour le cap,
+\code{16383} pour la vitesse (et d'autres pour altitude, accélération\ldots). Les voir
+apparaître n'est pas un bug : c'est le comportement correct quand aucune source n'alimente le
+champ (par exemple en mode position statique).
+
+% =====================================================================
+\section{Ce que la démonstration prouve}
+\begin{itemize}[leftmargin=1.6em]
+  \item deux véhicules échangent de vrais \textbf{CAM ETSI} conformes, sur WiFi, dans les deux
+        sens ;
+  \item le CAM émis par la voiture porte maintenant sa \textbf{position}, son \textbf{cap} et
+        sa \textbf{vitesse} réels, issus de l'odométrie ;
+  \item le PC les affiche en direct, avec la distance et une \textbf{alerte de proximité} ;
+  \item c'est la brique de base d'un système coopératif : chaque véhicule sait où sont les
+        autres, dans quelle direction et à quelle vitesse ils vont.
+\end{itemize}
+
+% =====================================================================
+\section{Difficultés rencontrées et solutions}
+
+\begin{piege}[Cap et vitesse « indisponibles »]
+En mode \code{-p static}, seul lat/lon est fourni : le CAM affiche donc \code{Heading 3601} /
+\code{Speed 16383}. Pour les vraies valeurs, il faut le mode dynamique \code{-p udp} alimenté
+par l'odométrie.
+\end{piege}
+
+\begin{piege}[« indispo » une fois sur deux]
+Deux \code{socktap} tournaient en station 2 (un ancien statique + le nouveau) $\rightarrow$
+les CAM alternaient. Solution : tuer l'ancien (\code{ps ... | grep socktap} puis \code{kill}).
+\end{piege}
+
+\begin{piege}[Caméra : rqt plante (imdecode !buf.empty())]
+Les images JPEG sont valides, mais rqt ne les reçoit pas (QoS \emph{best-effort} + la syntaxe
+\code{\_image\_transport:=compressed} traitée comme un remap). Solution : mon
+\code{view\_camera.py}, qui s'abonne correctement et décode lui-même.
+\end{piege}
+
+\begin{piege}[Chemins et IP]
+Lancer les binaires avec \code{\char`~/} (pas \code{/vanetza/\ldots}). Et l'IP de la Jetson
+change (DHCP) : la retrouver via sa MAC, \code{ip neigh | grep 14:75:5b}.
+\end{piege}
+
+% =====================================================================
+\section{Développer l'idée : un vrai dispositif d'alerte à capteur réel}
+Jusqu'ici, l'alerte de proximité est \textbf{logicielle} : un message à l'écran, calculé à
+partir des positions échangées dans les CAM. L'évolution que j'ai conçue pour la suite est
+d'en faire une \textbf{vraie boucle de sécurité coopérative}, avec un \textbf{capteur réel}
+qui déclenche l'alerte et un \textbf{dispositif physique} qui avertit le conducteur (ou arrête
+la voiture).
+
+\subsection{L'architecture que je propose}
+\begin{lstlisting}
+Capteur reel (detection)  -->  DENM (message evenement ETSI)  -->  reception
+        |                                                             |
+   LiDAR / ToF / ultrason                                             v
+   detecte un obstacle ou                              Dispositif d'alerte PHYSIQUE
+   un vehicule trop proche                             buzzer + LED (broche Pico)
+                                                        et/ou freinage d'urgence (ESC)
+\end{lstlisting}
+
+\subsection{1. Le capteur réel (déclenchement)}
+Aujourd'hui la distance vient des positions GPS échangées. Avec un capteur embarqué, la
+détection devient une \textbf{vraie mesure physique}, indépendante du V2V :
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Capteur} & \textbf{Portée} & \textbf{Rôle} \\
+\midrule
+LiDAR (déjà monté) & $\sim$12 m, 360° & détecter un obstacle/véhicule dans le secteur avant. \\
+ToF VL53L0X & $\sim$2 m & mesure de distance frontale précise, faible coût, I2C. \\
+Ultrason HC-SR04 & $\sim$4 m & détection d'obstacle simple et robuste. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Le plus direct est de \textbf{réutiliser le LiDAR} (déjà présent) : un petit nœud analyse le
+scan et, si un point passe sous un seuil dans le secteur avant, il lève un événement.
+
+\subsection{2. Le message : le DENM}
+Le CAM dit « je suis là » en continu ; le \textbf{DENM} (\emph{Decentralized Environmental
+Notification Message}) dit « \textbf{attention, événement ici, maintenant} ». C'est le message
+ETSI prévu pour les alertes (freinage, obstacle). À la détection du capteur, la voiture émet un
+DENM que les véhicules voisins reçoivent immédiatement --- c'est le complément logique du CAM
+que j'ai déjà mis en place.
+
+\subsection{3. Le dispositif d'alerte physique (réaction)}
+À la réception (DENM ou proximité), le véhicule déclenche un \textbf{vrai avertissement} :
+\begin{itemize}[leftmargin=1.6em]
+  \item un \textbf{buzzer + LED} pilotés par une broche GPIO libre du \textbf{Pico RP2040}
+        (déjà relié à la Jetson par USB série) --- signal sonore et visuel ;
+  \item et/ou un \textbf{freinage d'urgence (AEB)} : la Jetson commande l'ESC à l'arrêt via le
+        Pico, et la voiture s'arrête d'elle-même.
+\end{itemize}
+
+\begin{note}[Faisabilité avec le matériel actuel]
+Tout est réalisable sans nouvel achat indispensable : le \textbf{LiDAR} est déjà monté, le
+\textbf{Pico} contrôle déjà servo et ESC et possède des broches libres pour un buzzer/LED, et
+le lien \textbf{Jetson$\leftrightarrow$Pico} (USB série) existe déjà. Il reste à écrire le nœud
+de détection, l'émission/réception du DENM, et le pilotage de la broche d'alerte.
+\end{note}
+
+% =====================================================================
+\section{Prochaines étapes}
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Concrétiser le dispositif d'alerte à capteur réel} (section précédente) :
+        détection LiDAR $\rightarrow$ DENM $\rightarrow$ buzzer/LED puis freinage d'urgence.
+  \item \textbf{Démo sur 5G.} Rejouer l'échange de CAM sur le réseau 5G. Attention : le
+        cellulaire bloque le multicast, il faudra passer le lien \code{socktap} en \emph{unicast}
+        (ou par un relais).
+  \item \textbf{Sécurité.} Passer en \code{--security certs} : des CAM \textbf{signés}
+        (vrai C-ITS avec certificats).
+  \item \textbf{Fusion capteurs.} Robustifier l'odométrie (filtre EKF) pour un cap et une
+        vitesse encore plus précis.
+\end{enumerate}
+
+\vspace{6pt}\hrule
+{\footnotesize\itshape Fichiers produits --- code : \code{cam\_application.cpp},
+\code{udp\_position\_provider.cpp}, \code{odom\_to\_gps.py}, \code{v2v\_node.py},
+\code{v2v\_gps\_sim.py}, \code{v2v\_car\_monitor.py}, \code{view\_camera.py} ;
+lancement : \code{launch\_v2v\_odom.sh} (Jetson), \code{launch\_pc\_wifi.sh},
+\code{launch\_car\_wifi.sh} ; documents : \code{seance\_cam\_v2v\_2026-07-09.tex},
+\code{demo\_terrain\_v2v.tex}, \code{v2v\_explique\_pas\_a\_pas.tex}.}
+
+\end{document}

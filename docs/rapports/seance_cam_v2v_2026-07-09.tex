@@ -1,0 +1,202 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{amsmath}
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{success}{HTML}{2E7D32}
+\definecolor{warning}{HTML}{E65100}
+\definecolor{codebg}{HTML}{F5F5F5}
+
+\lstset{backgroundcolor=\color{codebg}, basicstyle=\ttfamily\footnotesize,
+  breaklines=true, frame=single, showstringspaces=false, columns=fullflexible,
+  keywordstyle=\color{primary}}
+
+\titleformat{\section}{\large\bfseries\color{primary}}{\thesection.}{0.6em}{}
+\titlespacing*{\section}{0pt}{12pt}{4pt}
+\titleformat{\subsection}{\bfseries}{\thesubsection.}{0.5em}{}
+\setlength{\parindent}{0pt}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\textbf{Séance V2V --- Enrichissement et démonstration des messages CAM}}
+\author{Douae Sebti}
+\date{9 juillet 2026}
+
+\begin{document}
+\maketitle
+\vspace{-8pt}\hrule\vspace{10pt}
+
+% =====================================================================
+\section{Objectif du jour}
+Aujourd'hui, j'ai travaillé sur la communication \textbf{V2V} (\emph{vehicle-to-vehicle})
+de ProtoVA, basée sur la pile \textbf{Vanetza} et les messages \textbf{CAM} de la norme
+européenne ETSI C-ITS. Le CAM (\emph{Cooperative Awareness Message}) est le message
+« je suis là » qu'un véhicule émet en continu (environ 1 fois par seconde) pour annoncer
+sa position, son cap et sa vitesse aux véhicules voisins.
+
+Mon objectif était double :
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{enrichir le CAM} pour qu'il porte le \textbf{cap} et la \textbf{vitesse}
+        réels (et pas seulement la position) ;
+  \item réaliser une \textbf{démonstration en direct} de l'échange des CAM entre les deux
+        machines : le PC et la carte Jetson.
+\end{enumerate}
+
+% =====================================================================
+\section{Ce que j'ai fait}
+
+\subsection{Enrichissement du CAM (cap + vitesse)}
+Jusqu'ici, le CAM émis contenait une position dynamique, mais le \textbf{cap} et la
+\textbf{vitesse} étaient codés en dur à \code{0}. Je les ai rendus réels, en les faisant
+remonter depuis l'odométrie du robot jusque dans le message. La chaîne complète est~:
+
+\begin{lstlisting}[language=bash]
+odometrie (nav_msgs/Odometry)
+   |  cap = lacet (yaw) du quaternion   ;   vitesse = norme du twist
+   v
+odom_to_gps.py  ->  /v2v/my_gps = [lat, lon, cap, vitesse]
+   v
+v2v_node.py     ->  envoi UDP "lat,lon,cap,vitesse" a socktap
+   v
+socktap (Vanetza)  ->  remplit le CAM emis (Heading, Speed)
+   v
+WiFi  ->  autre vehicule  ->  CAM recu, decode
+\end{lstlisting}
+
+J'ai modifié cinq fichiers~:
+\begin{itemize}[leftmargin=1.6em]
+  \item \code{cam\_application.cpp} : le cap et la vitesse sont désormais lus depuis la
+        position (\code{course}/\code{speed}) et convertis aux unités ETSI
+        ($0{,}1^\circ$ pour le cap, $0{,}01$~m/s pour la vitesse). Si l'information n'est
+        pas disponible, j'émets la valeur normalisée « \emph{unavailable} ».
+  \item \code{udp\_position\_provider.cpp} : accepte maintenant un datagramme
+        \code{"lat,lon,cap,vitesse"} (tout en restant compatible avec l'ancien
+        \code{"lat,lon"}).
+  \item \code{odom\_to\_gps.py} : calcule le cap (yaw) et la vitesse (twist) et les publie.
+  \item \code{v2v\_node.py} : transmet ces deux champs à socktap.
+  \item \code{v2v\_gps\_sim.py} : le véhicule simulé envoie aussi un cap et une vitesse
+        cohérents.
+\end{itemize}
+
+J'ai recompilé \code{socktap} \textbf{sur le PC puis sur la Jetson} (même version de
+Vanetza, commit identique), et j'ai vérifié qu'un envoi de
+\code{48.7668,11.4320,90.0,5.00} produit bien un CAM avec \code{Heading 900} ($=90^\circ$)
+et \code{Speed 500} ($=5$~m/s).
+
+\subsection{La démonstration en direct (deux terminaux)}
+J'ai lancé \code{socktap} \textbf{simultanément} sur les deux machines, chacune affichant
+les CAM \emph{reçus} de l'autre~:
+
+\begin{lstlisting}[language=bash]
+# Terminal PC (station 1)
+~/vanetza/build/bin/socktap -l udp -i wlp2s0 -a ca --print-rx-cam \
+  --security none --station-id 1 -p static --latitude 48.7668 --longitude 11.4320
+
+# Terminal Jetson (station 2)
+~/vanetza/build/bin/socktap -l udp -i wlP1p1s0 -a ca --print-rx-cam \
+  --security none --station-id 2 -p static --latitude 48.7669 --longitude 11.4321
+\end{lstlisting}
+
+Le lien \code{-l udp} utilise le multicast \code{239.118.122.97:8947} : les deux machines
+étant sur le même WiFi, chacune reçoit les trames de l'autre, \textbf{sans sudo et sans
+matériel radio 802.11p}.
+
+% =====================================================================
+\section{Résultats obtenus}
+La démonstration a fonctionné dans les \textbf{deux sens} :
+\begin{itemize}[leftmargin=1.6em]
+  \item le \textbf{PC} reçoit les CAM du Jetson (\code{Station ID: 2},
+        MAC \code{14:75:5b:15:59:32}) ;
+  \item le \textbf{Jetson} reçoit les CAM du PC (\code{Station ID: 1},
+        MAC \code{10:e1:8e:56:07:1a}).
+\end{itemize}
+Chaque CAM fait 99 octets et arrive environ une fois par seconde. Voici un CAM reçu,
+décodé :
+
+\begin{lstlisting}
+CAM application received a packet with decodable content
+Received CAM contains
+  ITS PDU Header:  Protocol Version: 2  Message ID: 2  Station ID: 2
+  CoopAwareness:
+    Generation Delta Time: 58568
+    Basic Container:
+      Station Type: 5
+      Reference Position:  Longitude: 114321000  Latitude: 487669000
+      Altitude [Confidence]: 800001 [15]
+    High Frequency Container [Basic Vehicle]:
+      Heading [Confidence]: 3601 [10]
+      Speed   [Confidence]: 16383 [1]
+      Drive Direction: 0
+      Vehicle Length: 1023   Vehicle Width: 62
+received packet from 14:75:5b:15:59:32 (99 bytes)
+\end{lstlisting}
+
+\subsection{Signification de chaque champ}
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Champ} & \textbf{Valeur} & \textbf{Signification} \\
+\midrule
+Protocol Version & 2 & version du format ETSI. \\
+Message ID & 2 & \textbf{2 = CAM}. \\
+Station ID & 1 / 2 & « plaque » de l'émetteur (PC=1, Jetson=2). \\
+Generation Delta Time & 58568 & horodatage d'émission (ms). \\
+Station Type & 5 & \textbf{voiture} (\emph{passenger car}). \\
+Longitude & 114321000 & position en $10^{-7}$° $\rightarrow$ \textbf{11,4321°}. \\
+Latitude & 487669000 & $\rightarrow$ \textbf{48,7669°}. \\
+Semi Major/Minor Conf. & 500 & précision de la position : \textbf{5,00 m}. \\
+Altitude [Conf.] & 800001 [15] & \textbf{indisponible} (pas de capteur d'altitude). \\
+Heading [Conf.] & 3601 [10] & cap \textbf{indisponible} (voir remarque). \\
+Speed [Conf.] & 16383 [1] & vitesse \textbf{indisponible} (voir remarque). \\
+Drive Direction & 0 & marche avant. \\
+Vehicle Length / Width & 1023 / 62 & dimensions \textbf{indisponibles}. \\
+received packet from & MAC (99 o.) & adresse physique de l'émetteur + taille. \\
+\bottomrule
+\end{tabularx}
+
+% =====================================================================
+\section{Remarque importante : cap et vitesse « indisponibles »}
+Dans cette démonstration, \code{Heading} vaut \code{3601} et \code{Speed} vaut
+\code{16383}~: ce sont les valeurs \textbf{« unavailable »} normalisées par l'ETSI. Ce
+n'est pas un bug, au contraire.
+
+La raison est que j'ai lancé socktap en mode \code{-p static}, qui ne fournit
+\textbf{que la position} (latitude/longitude) : aucun cap ni vitesse n'est donné. Mon code
+enrichi réagit alors correctement en émettant la valeur « indisponible ». Cela
+\textbf{prouve} que le repli fonctionne comme prévu.
+
+Pour voir les \textbf{vraies valeurs} de cap et de vitesse dans le CAM, il faut utiliser le
+mode dynamique \code{-p udp} et lui pousser \code{"lat,lon,cap,vitesse"} --- c'est
+exactement ce que font \code{v2v\_node.py} et \code{odom\_to\_gps.py} à partir de
+l'odométrie réelle du robot. J'ai vérifié ce mode séparément : le CAM affiche alors
+\code{Heading 900} ($90^\circ$) et \code{Speed 500} ($5$~m/s).
+
+% =====================================================================
+\section{Bilan et prochaines étapes}
+\textbf{Ce qui marche} : l'échange de CAM ETSI est opérationnel dans les deux sens entre le
+PC et la Jetson, sur WiFi, avec position, identité et (en mode dynamique) cap et vitesse
+réels issus de l'odométrie.
+
+\textbf{À suivre} :
+\begin{itemize}[leftmargin=1.6em]
+  \item préparer une \textbf{démonstration CAM sur 5G} (attention : le multicast est en
+        général bloqué par le réseau cellulaire, il faudra passer le lien socktap en
+        \emph{unicast} ou par un relais) ;
+  \item ajouter les messages \textbf{DENM} (alerte de freinage / d'obstacle) ;
+  \item passer en \code{--security certs} pour des messages \textbf{signés} (vrai C-ITS).
+\end{itemize}
+
+\vspace{8pt}\hrule
+{\footnotesize\itshape Documents liés : \code{v2v\_explique\_pas\_a\_pas.tex},
+\code{doc\_v2v\_vanetza.tex}, \code{guide\_lancement\_v2v.tex}, \code{todo\_protova2.tex}.}
+
+\end{document}

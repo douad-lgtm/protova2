@@ -1,0 +1,145 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[top=1.6cm, bottom=1.6cm, left=1.5cm, right=1.5cm]{geometry}
+\usepackage[table]{xcolor}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=primary}
+
+\definecolor{primary}{HTML}{1A237E}
+\definecolor{headbg}{HTML}{2C3E50}
+\definecolor{cNav}{HTML}{1E88E5}   % Phase A navigation
+\definecolor{cV2V}{HTML}{E65100}   % Phase B V2V
+\definecolor{cP1}{HTML}{2E7D32}    % Phase C Protova1
+\definecolor{cCons}{HTML}{6A1B9A}  % Phase D consolidation
+\definecolor{rowalt}{HTML}{EEF2FA}
+
+\titleformat{\section}{\large\bfseries\color{primary}}{}{0em}{}
+\titlespacing*{\section}{0pt}{8pt}{3pt}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.3}
+
+\newcommand{\g}[1]{\cellcolor{#1}}   % case coloree du Gantt
+
+\title{\textbf{Plan de missions --- 2 mois}\\[2mm]
+\large Projet PROTOVA (juillet--août 2026) --- ProtoVA1 \& ProtoVA2}
+\author{Douae Sebti --- ALTEN Labs}
+\date{3 juillet 2026}
+
+\begin{document}
+\maketitle
+\vspace{-4pt}
+
+\textbf{Objectif des 2 mois :} rendre \textbf{ProtoVA2 autonome de bout en bout}
+(navigation Nav2), \textbf{enrichir et sécuriser le V2V}, et \textbf{remettre
+ProtoVA1 en service} (odométrie encodeur $\rightarrow$ téléopération), pour
+aboutir à une \textbf{démonstration intégrée} entre les deux véhicules.
+
+% =====================================================================
+\section*{\textcolor{primary}{Planning (diagramme de Gantt --- 8 semaines)}}
+\vspace{2pt}
+{\small
+\begin{tabularx}{\textwidth}{|>{\raggedright\arraybackslash}X|c|c|c|c|c|c|c|c|}
+\hline
+\rowcolor{headbg}
+\textcolor{white}{\textbf{Mission}} &
+\textcolor{white}{S1} & \textcolor{white}{S2} & \textcolor{white}{S3} &
+\textcolor{white}{S4} & \textcolor{white}{S5} & \textcolor{white}{S6} &
+\textcolor{white}{S7} & \textcolor{white}{S8} \\
+\hline
+\multicolumn{9}{|l|}{\cellcolor{cNav!15}\textbf{\textcolor{cNav}{Phase A --- Navigation autonome ProtoVA2}}}\\
+\hline
+M1 : Cartographie propre (SLAM) + visualisation & \g{cNav} & & & & & & & \\
+M2 : Convertisseur Ackermann (twist $\rightarrow$ servo) & \g{cNav} & \g{cNav} & & & & & & \\
+M3 : Localisation AMCL + costmaps & & \g{cNav} & \g{cNav} & & & & & \\
+M4 : Navigation Nav2 bout-en-bout + réglages & & & \g{cNav} & \g{cNav} & & & & \\
+\hline
+\multicolumn{9}{|l|}{\cellcolor{cV2V!15}\textbf{\textcolor{cV2V}{Phase B --- V2V enrichi et sécurisé}}}\\
+\hline
+M5 : Sécurité par certificats (Root/AA/ticket) & & & & \g{cV2V} & \g{cV2V} & & & \\
+M6 : Messages DENM (freinage / obstacle) & & & & & \g{cV2V} & \g{cV2V} & & \\
+\hline
+\multicolumn{9}{|l|}{\cellcolor{cP1!15}\textbf{\textcolor{cP1}{Phase C --- ProtoVA1 remise en service}}}\\
+\hline
+M7 : Firmware Pico + node RX $\rightarrow$ odométrie & & & & & \g{cP1} & \g{cP1} & & \\
+M8 : Intégration capteurs + téléopération & & & & & & \g{cP1} & \g{cP1} & \\
+\hline
+\multicolumn{9}{|l|}{\cellcolor{cCons!15}\textbf{\textcolor{cCons}{Phase D --- Intégration \& démonstration}}}\\
+\hline
+M9 : Démo V2V ProtoVA1 $\leftrightarrow$ ProtoVA2 + V2V$\rightarrow$AEB & & & & & & & \g{cCons} & \g{cCons} \\
+M10 : Documentation + démonstration finale & & & & & & & & \g{cCons} \\
+\hline
+\end{tabularx}}
+
+% =====================================================================
+\section*{\textcolor{primary}{Détail des missions}}
+
+\textbf{\textcolor{cNav}{Phase A --- Navigation autonome ProtoVA2 (S1--S4)}}
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt]
+\item \textbf{M1 --- Cartographie propre.} Conduire pour cartographier le site
+      (SLAM), sauver \texttt{.pgm + .yaml} ; corriger le transport WiFi des gros
+      topics (profil FastDDS). \emph{Livrable :} carte exploitable + visualisation.
+\item \textbf{M2 --- Convertisseur Ackermann.} N{\oe}ud convertissant la consigne
+      Nav2 (twist) en angle de braquage servo pour le Pico
+      ($\delta=\arctan(L\,\omega/v)$), testé roues en l'air. \emph{Livrable :}
+      commande Nav2 $\rightarrow$ actionneurs opérationnelle.
+\item \textbf{M3 --- Localisation AMCL + costmaps.} Configurer AMCL sur la carte,
+      les costmaps (murs statiques + obstacles LiDAR live) et le contrôleur.
+      \emph{Livrable :} le véhicule se localise et « voit » les obstacles.
+\item \textbf{M4 --- Navigation bout-en-bout.} Envoyer un objectif depuis RViz,
+      le véhicule s'y rend en évitant les obstacles ; réglage des vitesses et
+      tolérances. \emph{Livrable :} \textbf{navigation autonome démontrée}.
+\end{itemize}
+
+\textbf{\textcolor{cV2V}{Phase B --- V2V enrichi et sécurisé (S4--S6)}}
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt]
+\item \textbf{M5 --- Sécurité par certificats.} Générer la chaîne
+      Root CA $\rightarrow$ AA $\rightarrow$ ticket (\texttt{certify}) et signer
+      les CAM (\texttt{--security certs}). \emph{Livrable :} messages
+      \textbf{signés et vérifiés} (vrai C-ITS).
+\item \textbf{M6 --- Messages DENM.} Ajouter les alertes d'événement (freinage
+      d'urgence, obstacle) émises à la demande. \emph{Livrable :} un véhicule
+      freine $\rightarrow$ l'autre reçoit l'alerte DENM.
+\end{itemize}
+
+\textbf{\textcolor{cP1}{Phase C --- ProtoVA1 remise en service (S5--S7)}}
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt]
+\item \textbf{M7 --- Odométrie (encodeur validé).} Monter l'encodeur, écrire le
+      firmware Pico (Arduino : ticks + vitesse $\rightarrow$ ligne \texttt{MOTION})
+      et le node RX (\texttt{/ticks}, \texttt{/velocity}). \emph{Livrable :}
+      vitesse/odométrie réelles publiées sur ProtoVA1.
+\item \textbf{M8 --- Capteurs + téléopération.} Intégrer LiDAR / caméra / IMU
+      sous ROS 2 Foxy et rejouer la chaîne de téléopération (G29 / PS4).
+      \emph{Livrable :} ProtoVA1 pilotable et instrumenté.
+\end{itemize}
+
+\textbf{\textcolor{cCons}{Phase D --- Intégration \& démonstration (S7--S8)}}
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt]
+\item \textbf{M9 --- Démo V2V à deux véhicules.} Faire communiquer
+      ProtoVA1 $\leftrightarrow$ ProtoVA2 (origine commune) et coupler l'alerte
+      V2V au freinage d'urgence (AEB). \emph{Livrable :} scénario de sécurité
+      coopérative réel.
+\item \textbf{M10 --- Documentation + démonstration finale.} Rapport, présentation
+      et démonstration intégrée. \emph{Livrable :} bilan de stage.
+\end{itemize}
+
+% =====================================================================
+\section*{\textcolor{primary}{Jalons}}
+\begin{itemize}[leftmargin=1.4em, itemsep=1pt]
+\item \textbf{Fin S4 :} ProtoVA2 navigue de façon autonome (objectif RViz).
+\item \textbf{Fin S6 :} V2V sécurisé (certificats) + DENM opérationnels.
+\item \textbf{Fin S7 :} ProtoVA1 instrumenté et téléopérable.
+\item \textbf{Fin S8 :} démonstration intégrée ProtoVA1 $\leftrightarrow$ ProtoVA2.
+\end{itemize}
+
+\vspace{4pt}
+{\footnotesize\itshape Planning indicatif : les phases se recouvrent volontairement
+(ex. V2V et ProtoVA1 en parallèle) ; les priorités pourront être ajustées selon les
+aléas matériels (connecteur LiDAR, disponibilité des véhicules).}
+
+\end{document}
