@@ -32,7 +32,7 @@ import threading
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String, Float64MultiArray, Bool
+from std_msgs.msg import String, Float64MultiArray, Float64, Bool
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -56,8 +56,12 @@ class V2VNode(Node):
         self.my_speed = 0.0     # vitesse (m/s), maj par /v2v/my_gps
         self.alert_dist = float(g('alert_dist', 10.0))
         self.socktap = g('socktap_bin', '/home/protova2/vanetza/build/bin/socktap')
-        self.positioning = g('positioning', 'udp')   # 'udp' = position dynamique
+        self.positioning = g('positioning', 'udp')   # 'udp'=odometrie, 'lidar'=distance lidar reelle
         self.pos_port = int(g('pos_port', 9001))
+        # 'lidar' : le voisin (PC) est a cette position de reference ; on se declare
+        # a la distance MESUREE PAR LE LIDAR de ce point -> le recepteur calcule la vraie distance.
+        self.ref_lat = float(g('ref_lat', self.my_lat))
+        self.ref_lon = float(g('ref_lon', self.my_lon))
         self.denm_port = int(g('denm_port', 9002))    # port declencheur DENM de socktap
 
         self.pub_veh = self.create_publisher(String, '/v2v/remote_vehicles', 10)
@@ -69,11 +73,14 @@ class V2VNode(Node):
                '--print-rx-cam', '--print-rx-denm', '--security', 'none',
                '--station-id', str(self.station_id),
                '--denm-trigger-port', str(self.denm_port)]
-        if self.positioning == 'udp':
+        if self.positioning in ('udp', 'lidar'):
             cmd += ['-p', 'udp', '--pos-port', str(self.pos_port)]
             # socket pour pousser notre position a socktap
             self.tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.create_subscription(Float64MultiArray, '/v2v/my_gps', self.cb_gps, 10)
+            if self.positioning == 'udp':
+                self.create_subscription(Float64MultiArray, '/v2v/my_gps', self.cb_gps, 10)
+            else:  # 'lidar' : distance reelle mesuree par le lidar
+                self.create_subscription(Float64, '/v2v/neighbor_dist', self.cb_neighbor, 10)
             self.create_timer(0.2, self.push_position)   # 5 Hz
         else:
             cmd += ['--latitude', str(self.my_lat), '--longitude', str(self.my_lon)]
@@ -110,8 +117,17 @@ class V2VNode(Node):
         if len(d) >= 4:
             self.my_heading, self.my_speed = float(d[2]), float(d[3])
 
+    def cb_neighbor(self, msg):
+        # distance lidar REELLE au voisin -> on se place a D metres au nord de la
+        # reference (position du voisin) : le recepteur calcule alors exactement D.
+        d = float(msg.data)
+        self.my_lat = self.ref_lat + d / 111320.0
+        self.my_lon = self.ref_lon
+        self.my_heading = 180.0   # oriente vers le voisin
+        self.my_speed = 0.0
+
     def push_position(self):
-        if self.positioning == 'udp':
+        if self.positioning in ('udp', 'lidar'):
             try:
                 # "lat,lon,cap,vitesse" -> socktap remplit position + cap + vitesse du CAM
                 self.tx.sendto(
