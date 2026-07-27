@@ -32,7 +32,8 @@ class LidarNeighbor(Node):
         super().__init__('lidar_neighbor')
         g = lambda n, d: self.declare_parameter(n, d).value
         self.sector = math.radians(float(g('sector_deg', 40.0)))
-        self.front = math.radians(float(g('front_offset_deg', 0.0)))
+        # RPLIDAR monte "moteur a l'arriere" : l'avant du robot = 180 deg du scan
+        self.front = math.radians(float(g('front_offset_deg', 180.0)))
         self.rmin = float(g('range_min', 0.05))
         self.rmax = float(g('range_max', 12.0))
         self.alpha = float(g('smooth', 0.3))
