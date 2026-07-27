@@ -74,7 +74,29 @@ def sample_distance(depth_m, box, color_shape, pct=20):
     return round(float(np.percentile(v, pct)), 2)
 
 
-def run_detection(model, bgr, depth_m, targets, conf, brake_dist, brake_on_any=True):
+def forward_obstacle(depth_m, band=(0.35, 0.62), cols=(0.30, 0.70), pct=10,
+                     dmin=0.15, dmax=20.0, min_pts=40):
+    """Distance (m) au plus proche obstacle dans un COULOIR FRONTAL central, à partir
+    de la profondeur BRUTE (indépendamment de YOLO). Détecte donc TOUT — murs et
+    objets inconnus que YOLO n'a pas appris. On échantillonne une bande horizontale
+    centrale (évite le sol proche en bas et le plafond en haut) et on prend un
+    percentile bas = la surface la plus proche, robuste au bruit.
+    C'est ce qui empêche de rentrer dans les murs (là où YOLO seul échoue)."""
+    if depth_m is None:
+        return None
+    h, w = depth_m.shape
+    r1, r2 = int(band[0] * h), int(band[1] * h)
+    c1, c2 = int(cols[0] * w), int(cols[1] * w)
+    v = depth_m[r1:r2, c1:c2]
+    v = v[(v > dmin) & (v < dmax) & np.isfinite(v)]
+    if v.size < min_pts:
+        return None
+    return round(float(np.percentile(v, pct)), 2)
+
+
+def run_detection(model, bgr, depth_m, targets, conf, brake_dist, brake_on_any=True,
+                  detect_walls=True, wall_band=(0.35, 0.62), wall_cols=(0.30, 0.70),
+                  wall_pct=10):
     """Retourne (liste_detections, freinage_bool, image_annotée).
 
     Freinage : par défaut (`brake_on_any=True`) TOUT objet détecté à moins de
@@ -115,6 +137,28 @@ def run_detection(model, bgr, depth_m, targets, conf, brake_dist, brake_on_any=T
         cv2.rectangle(img, (x1, yt - th - 9), (x1 + tw + 6, yt), color, -1)
         cv2.putText(img, label, (x1 + 3, yt - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    # --- obstacle GÉNÉRIQUE par profondeur (murs + objets inconnus, hors YOLO) ---
+    # Complète YOLO : détecte toute surface proche devant, même non reconnue par YOLO.
+    if detect_walls:
+        d_fwd = forward_obstacle(depth_m, wall_band, wall_cols, wall_pct)
+        if d_fwd is not None:
+            fb = [int(w * wall_cols[0]), int(h * wall_band[0]),
+                  int(w * wall_cols[1]), int(h * wall_band[1])]
+            # on ne l'ajoute que s'il est le plus proche (obstacle que YOLO a manqué)
+            plus_proche = min([d['distance_m'] for d in dets
+                               if d['distance_m'] is not None], default=None)
+            if plus_proche is None or d_fwd <= plus_proche + 0.05:
+                dets.append({'class': 'obstacle', 'conf': 1.0,
+                             'distance_m': d_fwd, 'box': fb})
+            close = d_fwd < brake_dist
+            if close:
+                brake = True
+            col = (0, 0, 255) if close else (0, 180, 255)
+            cv2.rectangle(img, (fb[0], fb[1]), (fb[2], fb[3]), col, 2)
+            cv2.putText(img, f"obstacle {d_fwd}m", (fb[0], max(fb[1] - 8, 14)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, col, 2)
+
     return dets, brake, img
 
 
@@ -132,6 +176,11 @@ class YoloDetect(Node):
         self.brake_on_any = bool(g('brake_on_any', True))   # True = freiner sur TOUT objet proche
         self.show = bool(g('show', False))
         rate = float(g('rate', 5.0))
+        # detection d'obstacle GENERIQUE par profondeur (murs/objets inconnus, hors YOLO)
+        self.detect_walls = bool(g('detect_walls', True))
+        self.wall_band = (float(g('wall_band_top', 0.35)), float(g('wall_band_bot', 0.62)))
+        self.wall_cols = (float(g('wall_cols_left', 0.30)), float(g('wall_cols_right', 0.70)))
+        self.wall_pct = int(g('wall_pct', 10))
 
         self.model = YOLO(model_path)
         self.bgr = None
@@ -159,7 +208,8 @@ class YoloDetect(Node):
             return
         dets, brake, annotated = run_detection(
             self.model, self.bgr, self.depth, self.targets, self.conf,
-            self.brake_dist, self.brake_on_any)
+            self.brake_dist, self.brake_on_any,
+            self.detect_walls, self.wall_band, self.wall_cols, self.wall_pct)
         self.pub_det.publish(String(data=json.dumps(dets)))
         self.pub_brake.publish(Bool(data=brake))
         proches = [f"{d['class']} {d['distance_m']}m" for d in dets
