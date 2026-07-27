@@ -56,9 +56,12 @@ class AebFusion(Node):
         self.cols = (float(g('cols_left', 0.30)), float(g('cols_right', 0.70)))
         self.pct = int(g('pct', 10))
         self.dmin = float(g('dmin', 0.15))
-        # frein actif optionnel
-        self.brake_reverse = float(g('brake_reverse', 0.0))
-        self.brake_time = float(g('brake_time', 0.2))
+        # frein actif : impulsion de marche arriere = frein moteur ESC. Banc encodeur
+        # (roues en l'air) : roue libre 1.94 s ; -0.3/0.25s 1.16 s ; -0.5/0.5s 0.61 s ;
+        # -0.8 n'apporte rien (saturation ESC) -> defaut -0.5 / 0.5 s.
+        self.brake_reverse = float(g('brake_reverse', 0.5))
+        self.brake_time = float(g('brake_time', 0.5))
+        self.wheel_vel = 0.0    # /velocity (encodeur) : coupe le frein des l'arret reel
         self.rate = float(g('rate', 30.0))
 
         self.driver = Twist()
@@ -75,6 +78,8 @@ class AebFusion(Node):
         if self.use_depth:
             self.create_subscription(Image, self.depth_topic, self.cb_depth, qos_profile_sensor_data)
         self.create_subscription(Twist, self.driver_topic, self.cb_drv, 10)
+        self.create_subscription(Float32, '/velocity',
+                                 lambda m: setattr(self, 'wheel_vel', float(m.data)), 10)
         self.create_timer(1.0 / self.rate, self.tick)
         self.get_logger().info(
             f"AEB FUSION prêt : lidar({self.scan_topic}, avant ±{math.degrees(self.sector):.0f}°) "
@@ -142,8 +147,11 @@ class AebFusion(Node):
             if self._stop_start is None:
                 self._stop_start = now
             elapsed = (now - self._stop_start).nanoseconds * 1e-9
-            if self.brake_reverse > 0.0 and elapsed < self.brake_time:
-                t.linear.x = -self.brake_reverse          # frein actif (recul bref)
+            # frein actif tant que (1) l'impulsion n'est pas finie ET (2) les roues
+            # tournent encore (encodeur) -> pas de recul une fois arrete
+            if self.brake_reverse > 0.0 and elapsed < self.brake_time \
+                    and abs(self.wheel_vel) > 0.2:
+                t.linear.x = -self.brake_reverse
             else:
                 t.linear.x = 0.0
         else:
