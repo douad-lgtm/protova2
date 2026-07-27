@@ -68,6 +68,7 @@ class AebFusion(Node):
 
         self.driver = Twist()
         self.d_lidar = None
+        self.d_rear = None      # plus proche obstacle ARRIERE (lidar 360)
         self.d_depth = None
         self.t_lidar = None
         self.t_depth = None
@@ -91,15 +92,21 @@ class AebFusion(Node):
         self.driver = m
 
     def cb_scan(self, scan):
-        best = None
+        # un seul passage : secteur AVANT (self.front) et secteur ARRIERE (front+180)
+        best_f, best_r = None, None
+        rear = self.front + math.pi
         a = scan.angle_min
         for r in scan.ranges:
-            da = math.atan2(math.sin(a - self.front), math.cos(a - self.front))
-            if abs(da) <= self.sector and self.rmin < r < self.rmax and math.isfinite(r):
-                if best is None or r < best:
-                    best = r
+            if self.rmin < r < self.rmax and math.isfinite(r):
+                da_f = math.atan2(math.sin(a - self.front), math.cos(a - self.front))
+                if abs(da_f) <= self.sector and (best_f is None or r < best_f):
+                    best_f = r
+                da_r = math.atan2(math.sin(a - rear), math.cos(a - rear))
+                if abs(da_r) <= self.sector and (best_r is None or r < best_r):
+                    best_r = r
             a += scan.angle_increment
-        self.d_lidar = best
+        self.d_lidar = best_f
+        self.d_rear = best_r
         self.t_lidar = self.get_clock().now()
 
     def cb_depth(self, msg):
@@ -116,64 +123,74 @@ class AebFusion(Node):
     def _fresh(self, t, max_age=0.5):
         return t is not None and (self.get_clock().now() - t).nanoseconds * 1e-9 < max_age
 
+    def _factor(self, dist):
+        """facteur de vitesse 0..1 selon la distance (None = rien de detecte)."""
+        if dist is None:
+            return 1.0
+        if dist <= self.d_stop:
+            return 0.0
+        if dist >= self.d_slow:
+            return 1.0
+        return (dist - self.d_stop) / (self.d_slow - self.d_stop)
+
     def tick(self):
-        cands = []
+        # --- distances AVANT (lidar + camera) et ARRIERE (lidar seul, 360) ---
+        d_front, src_front = None, ''
         if self.d_lidar is not None and self._fresh(self.t_lidar):
-            cands.append(('lidar', self.d_lidar))
+            d_front, src_front = self.d_lidar, 'lidar'
         if self.d_depth is not None and self._fresh(self.t_depth):
-            cands.append(('depth', self.d_depth))
-        if not cands:
+            if d_front is None or self.d_depth < d_front:
+                d_front, src_front = self.d_depth, 'depth'
+        d_rear = self.d_rear if self._fresh(self.t_lidar) else None
+
+        ftxt = f"{d_front:.2f} m ({src_front})" if d_front is not None else "libre"
+        rtxt = f"{d_rear:.2f} m" if d_rear is not None else "libre"
+        self.get_logger().info(f"avant : {ftxt} | arriere : {rtxt}",
+                               throttle_duration_sec=1.0)
+
+        f_fwd = self._factor(d_front)     # limite la marche AVANT
+        f_rev = self._factor(d_rear)      # limite la marche ARRIERE
+
+        vx = self.driver.linear.x
+        if vx > 0.0:
+            f, side, dist = f_fwd, 'AVANT', d_front
+        elif vx < 0.0:
+            f, side, dist = f_rev, 'ARRIERE', d_rear
+        else:
             self._stop_start = None
             self.pub_b.publish(Bool(data=False))
+            self.pub_lvl.publish(Float32(data=0.0))
             return
-        src, dist = min(cands, key=lambda c: c[1])
-        self.get_logger().info(f"danger : {dist:.2f} m ({src})", throttle_duration_sec=1.0)
-
-        if dist <= self.d_stop:
-            f = 0.0
-        elif dist >= self.d_slow:
-            f = 1.0
-        else:
-            f = (dist - self.d_stop) / (self.d_slow - self.d_stop)
 
         self.pub_lvl.publish(Float32(data=float(1.0 - f)))
-        if f >= 0.999:
+        if f >= 0.999:                    # direction demandee libre -> conduite normale
             self._stop_start = None
             self.pub_b.publish(Bool(data=False))
             return
 
         t = Twist()
-        vx = self.driver.linear.x
-        if f <= 0.01 and vx < 0.0:
-            # le danger est DEVANT : on laisse toujours le conducteur RECULER
-            # pour s'ecarter de l'obstacle (sinon la voiture reste piegee).
-            self._stop_start = None
-            t.linear.x = vx
-            t.angular.z = self.driver.angular.z
-            self.pub.publish(t)
-            self.pub_b.publish(Bool(data=False))
-            return
         if f <= 0.01:
+            # arret d'urgence dans la direction demandee ; frein actif = impulsion
+            # OPPOSEE au sens de marche, coupee des l'arret reel (encodeur)
             now = self.get_clock().now()
             if self._stop_start is None:
                 self._stop_start = now
             elapsed = (now - self._stop_start).nanoseconds * 1e-9
-            # frein actif tant que (1) l'impulsion n'est pas finie ET (2) les roues
-            # tournent encore (encodeur) -> pas de recul une fois arrete
             if self.brake_reverse > 0.0 and elapsed < self.brake_time \
                     and abs(self.wheel_vel) > 0.2:
-                t.linear.x = -self.brake_reverse
+                t.linear.x = -self.brake_reverse if vx > 0.0 else self.brake_reverse
             else:
                 t.linear.x = 0.0
         else:
             self._stop_start = None
-            t.linear.x = vx * f if vx > 0.0 else vx
+            t.linear.x = vx * f           # ralentissement progressif (les 2 sens)
         t.angular.z = self.driver.angular.z
         self.pub.publish(t)
         self.pub_b.publish(Bool(data=True))
         if f <= 0.01:
-            self.get_logger().warn(f"*** AEB URGENCE : ARRET — {src} à {dist:.2f} m ***",
-                                   throttle_duration_sec=0.4)
+            self.get_logger().warn(
+                f"*** AEB URGENCE ({side}) : ARRET — obstacle à {dist:.2f} m ***",
+                throttle_duration_sec=0.4)
 
 
 def main():
