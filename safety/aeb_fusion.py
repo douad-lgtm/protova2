@@ -142,6 +142,15 @@ class AebFusion(Node):
 
         t = Twist()
         vx = self.driver.linear.x
+        if f <= 0.01 and vx < 0.0:
+            # le danger est DEVANT : on laisse toujours le conducteur RECULER
+            # pour s'ecarter de l'obstacle (sinon la voiture reste piegee).
+            self._stop_start = None
+            t.linear.x = vx
+            t.angular.z = self.driver.angular.z
+            self.pub.publish(t)
+            self.pub_b.publish(Bool(data=False))
+            return
         if f <= 0.01:
             now = self.get_clock().now()
             if self._stop_start is None:
