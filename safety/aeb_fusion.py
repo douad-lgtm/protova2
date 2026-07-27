@@ -170,15 +170,18 @@ class AebFusion(Node):
 
         t = Twist()
         if f <= 0.01:
-            # arret d'urgence dans la direction demandee ; frein actif = impulsion
-            # OPPOSEE au sens de marche, coupee des l'arret reel (encodeur)
+            # arret d'urgence : la voiture s'arrete et RESTE arretee (0 publie en
+            # continu, priorite 255) meme si le conducteur garde l'accelerateur.
+            # Impulsion de frein actif UNIQUEMENT en marche AVANT (calibree au banc,
+            # coupee des l'arret encodeur). En marche ARRIERE : arret direct a 0,
+            # AUCUN mouvement vers l'avant (demande utilisatrice).
             now = self.get_clock().now()
             if self._stop_start is None:
                 self._stop_start = now
             elapsed = (now - self._stop_start).nanoseconds * 1e-9
-            if self.brake_reverse > 0.0 and elapsed < self.brake_time \
+            if vx > 0.0 and self.brake_reverse > 0.0 and elapsed < self.brake_time \
                     and abs(self.wheel_vel) > 0.2:
-                t.linear.x = -self.brake_reverse if vx > 0.0 else self.brake_reverse
+                t.linear.x = -self.brake_reverse
             else:
                 t.linear.x = 0.0
         else:
