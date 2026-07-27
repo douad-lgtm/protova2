@@ -45,6 +45,10 @@ class AebDepth(Node):
         self.cols = (float(g('cols_left', 0.30)), float(g('cols_right', 0.70)))
         self.pct = int(g('pct', 10))
         self.dmin = float(g('dmin', 0.15))
+        # frein ACTIF optionnel : brève marche arrière pour vaincre l'inertie (0 = coast/roue libre)
+        self.brake_reverse = float(g('brake_reverse', 0.0))   # amplitude (ex. 0.3) ; 0 = désactivé
+        self.brake_time = float(g('brake_time', 0.2))         # durée de l'impulsion (s)
+        self._stop_start = None
         self.driver = Twist()
         self.pub = self.create_publisher(Twist, '/cmd_vel_aeb', 10)
         self.pub_b = self.create_publisher(Bool, '/obstacle/brake', 10)
@@ -68,8 +72,13 @@ class AebDepth(Node):
         v = v[(v > self.dmin) & np.isfinite(v)]
         if v.size < 40:                      # pas assez de points fiables
             self.pub_b.publish(Bool(data=False))
+            self.get_logger().info(
+                f"profondeur : couloir vide / hors portee (points valides={v.size}) "
+                f"[shape={h}x{w}]", throttle_duration_sec=1.0)
             return
         dist = float(np.percentile(v, self.pct))
+        self.get_logger().info(f"obstacle le plus proche : {dist:.2f} m",
+                               throttle_duration_sec=1.0)
         # facteur de vitesse : arrêt FRANC sous d_stop (réponse rapide)
         if dist <= self.d_stop:
             f = 0.0
@@ -80,12 +89,26 @@ class AebDepth(Node):
 
         self.pub_lvl.publish(Float32(data=float(1.0 - f)))
         if f >= 0.999:                       # rien de proche -> on laisse conduire
+            self._stop_start = None
             self.pub_b.publish(Bool(data=False))
             return
         t = Twist()
         vx = self.driver.linear.x
-        t.linear.x = vx * f if vx > 0.0 else vx     # ne limite que la marche avant
-        t.angular.z = self.driver.angular.z         # garde la direction du conducteur
+        if f <= 0.01:
+            # arrêt franc : impulsion de FREIN ACTIF (marche arrière brève) si activé,
+            # sinon point mort (roue libre). L'impulsion vainc l'inertie -> arrêt rapide.
+            now = self.get_clock().now()
+            if self._stop_start is None:
+                self._stop_start = now
+            elapsed = (now - self._stop_start).nanoseconds * 1e-9
+            if self.brake_reverse > 0.0 and elapsed < self.brake_time:
+                t.linear.x = -self.brake_reverse         # frein actif (recul bref)
+            else:
+                t.linear.x = 0.0                         # maintien à l'arrêt
+        else:
+            self._stop_start = None
+            t.linear.x = vx * f if vx > 0.0 else vx      # ralentissement proportionnel
+        t.angular.z = self.driver.angular.z              # garde la direction du conducteur
         self.pub.publish(t)
         self.pub_b.publish(Bool(data=True))
         if f <= 0.01:
