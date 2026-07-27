@@ -45,6 +45,10 @@ class AebFusion(Node):
         self.driver_topic = g('driver_topic', '/cmd_vel_G29')
         self.d_stop = float(g('d_stop', 0.6))
         self.d_slow = float(g('d_slow', 1.2))
+        # seuils DYNAMIQUES : plus la voiture roule vite (encodeur /velocity), plus on
+        # freine TOT — comme un vrai AEB. seuil = base + k * |vitesse_roues|
+        self.k_stop = float(g('k_stop', 0.5))   # m ajoutes a d_stop par unite de vitesse
+        self.k_slow = float(g('k_slow', 1.0))   # m ajoutes a d_slow par unite de vitesse
         # secteur frontal du lidar
         self.sector = math.radians(float(g('sector_deg', 45.0)))
         # RPLIDAR monte "moteur a l'arriere" : le 0 du scan pointe vers l'ARRIERE
@@ -123,15 +127,15 @@ class AebFusion(Node):
     def _fresh(self, t, max_age=0.5):
         return t is not None and (self.get_clock().now() - t).nanoseconds * 1e-9 < max_age
 
-    def _factor(self, dist):
-        """facteur de vitesse 0..1 selon la distance (None = rien de detecte)."""
+    def _factor(self, dist, d_stop, d_slow):
+        """facteur de vitesse 0..1 selon la distance et les seuils dynamiques."""
         if dist is None:
             return 1.0
-        if dist <= self.d_stop:
+        if dist <= d_stop:
             return 0.0
-        if dist >= self.d_slow:
+        if dist >= d_slow:
             return 1.0
-        return (dist - self.d_stop) / (self.d_slow - self.d_stop)
+        return (dist - d_stop) / (d_slow - d_stop)
 
     def tick(self):
         # --- distances AVANT (lidar + camera) et ARRIERE (lidar seul, 360) ---
@@ -143,13 +147,20 @@ class AebFusion(Node):
                 d_front, src_front = self.d_depth, 'depth'
         d_rear = self.d_rear if self._fresh(self.t_lidar) else None
 
+        # seuils dynamiques : croissent avec la vitesse reelle mesuree (encodeur)
+        v = abs(self.wheel_vel)
+        d_stop_dyn = self.d_stop + self.k_stop * v
+        d_slow_dyn = self.d_slow + self.k_slow * v
+
         ftxt = f"{d_front:.2f} m ({src_front})" if d_front is not None else "libre"
         rtxt = f"{d_rear:.2f} m" if d_rear is not None else "libre"
-        self.get_logger().info(f"avant : {ftxt} | arriere : {rtxt}",
-                               throttle_duration_sec=1.0)
+        self.get_logger().info(
+            f"avant : {ftxt} | arriere : {rtxt} | v={v:.2f} -> "
+            f"stop<{d_stop_dyn:.2f} m ralenti<{d_slow_dyn:.2f} m",
+            throttle_duration_sec=1.0)
 
-        f_fwd = self._factor(d_front)     # limite la marche AVANT
-        f_rev = self._factor(d_rear)      # limite la marche ARRIERE
+        f_fwd = self._factor(d_front, d_stop_dyn, d_slow_dyn)   # marche AVANT
+        f_rev = self._factor(d_rear, d_stop_dyn, d_slow_dyn)    # marche ARRIERE
 
         vx = self.driver.linear.x
         if vx > 0.0:
