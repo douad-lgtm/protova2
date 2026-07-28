@@ -56,8 +56,11 @@ class AebFusion(Node):
         self.front = math.radians(float(g('front_offset_deg', 180.0)))
         self.rmin = float(g('range_min', 0.06))
         self.rmax = float(g('range_max', 12.0))
-        # couloir de la caméra
-        self.use_depth = bool(g('use_depth', True))
+        # couloir de la caméra — DESACTIVE par defaut (decision 2026-07-28) : le lidar
+        # seul suffit pour l'AEB dans notre environnement (plan lidar couvre murs/
+        # chaises/personnes) ; la camera reste dediee a la classification YOLO/DENM.
+        # Reactivable avec -p use_depth:=true (obstacles hors du plan lidar).
+        self.use_depth = bool(g('use_depth', False))
         self.band = (float(g('band_top', 0.35)), float(g('band_bot', 0.62)))
         self.cols = (float(g('cols_left', 0.30)), float(g('cols_right', 0.70)))
         self.pct = int(g('pct', 10))

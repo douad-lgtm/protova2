@@ -187,6 +187,11 @@ class YoloDetect(Node):
         self.depth = None
         self.pub_det = self.create_publisher(String, '/obstacle/detections', 10)
         self.pub_brake = self.create_publisher(Bool, '/obstacle/brake', 10)
+        # image annotee (JPEG compresse) : permet de superviser la detection depuis
+        # une autre machine (ex. YOLO sur la Jetson, visualisation sur le PC) sans
+        # transporter le flux brut. Desactivable avec -p publish_annotated:=false.
+        self.publish_annotated = bool(g('publish_annotated', True))
+        self.pub_img = self.create_publisher(CompressedImage, '/obstacle/annotated/compressed', 10)
         self.create_subscription(CompressedImage, self.color_topic, self.cb_color, qos_profile_sensor_data)
         self.create_subscription(Image, self.depth_topic, self.cb_depth, qos_profile_sensor_data)
         self.create_timer(1.0 / rate, self.tick)
@@ -212,6 +217,14 @@ class YoloDetect(Node):
             self.detect_walls, self.wall_band, self.wall_cols, self.wall_pct)
         self.pub_det.publish(String(data=json.dumps(dets)))
         self.pub_brake.publish(Bool(data=brake))
+        if self.publish_annotated:
+            ok, jpg = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                m = CompressedImage()
+                m.header.stamp = self.get_clock().now().to_msg()
+                m.format = 'jpeg'
+                m.data = jpg.tobytes()
+                self.pub_img.publish(m)
         proches = [f"{d['class']} {d['distance_m']}m" for d in dets
                    if d['distance_m'] is not None and d['distance_m'] < self.brake_dist
                    and (self.brake_on_any or d['class'] in self.targets)]
