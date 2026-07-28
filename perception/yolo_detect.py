@@ -94,9 +94,21 @@ def forward_obstacle(depth_m, band=(0.35, 0.62), cols=(0.30, 0.70), pct=10,
     return round(float(np.percentile(v, pct)), 2)
 
 
+def pick_device(pref='auto'):
+    """Choisit le peripherique d'inference : 'auto' -> GPU CUDA si disponible.
+    Sur la Jetson (GPU Orin) l'inference passe de ~344 ms a ~30 ms par image."""
+    if pref != 'auto':
+        return pref
+    try:
+        import torch
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
+    except ImportError:
+        return 'cpu'
+
+
 def run_detection(model, bgr, depth_m, targets, conf, brake_dist, brake_on_any=True,
                   detect_walls=True, wall_band=(0.35, 0.62), wall_cols=(0.30, 0.70),
-                  wall_pct=10):
+                  wall_pct=10, device='cpu'):
     """Retourne (liste_detections, freinage_bool, image_annotée).
 
     Freinage : par défaut (`brake_on_any=True`) TOUT objet détecté à moins de
@@ -106,7 +118,7 @@ def run_detection(model, bgr, depth_m, targets, conf, brake_dist, brake_on_any=T
     L'image annotée affiche pour chaque objet : classe + DISTANCE (m) + confiance,
     avec un code couleur : ROUGE = proche → freine ; VERT = loin → OK.
     """
-    res = model(bgr, verbose=False, conf=conf)[0]
+    res = model(bgr, verbose=False, conf=conf, device=device)[0]
     h, w = bgr.shape[:2]
     area = float(h * w)
     dets, brake = [], False
@@ -182,7 +194,12 @@ class YoloDetect(Node):
         self.wall_cols = (float(g('wall_cols_left', 0.30)), float(g('wall_cols_right', 0.70)))
         self.wall_pct = int(g('wall_pct', 10))
 
+        self.device = pick_device(g('device', 'auto'))
         self.model = YOLO(model_path)
+        try:
+            self.model.to(self.device)
+        except Exception:
+            pass
         self.bgr = None
         self.depth = None
         self.pub_det = self.create_publisher(String, '/obstacle/detections', 10)
@@ -197,7 +214,7 @@ class YoloDetect(Node):
         self.create_timer(1.0 / rate, self.tick)
         self.get_logger().info(
             f"yolo_detect prêt : couleur={self.color_topic}, profondeur={self.depth_topic}, "
-            f"cibles={self.targets}, frein<{self.brake_dist} m")
+            f"cibles={self.targets}, frein<{self.brake_dist} m, device={self.device}")
 
     def cb_color(self, msg):
         arr = np.frombuffer(bytes(msg.data), np.uint8)
@@ -214,7 +231,8 @@ class YoloDetect(Node):
         dets, brake, annotated = run_detection(
             self.model, self.bgr, self.depth, self.targets, self.conf,
             self.brake_dist, self.brake_on_any,
-            self.detect_walls, self.wall_band, self.wall_cols, self.wall_pct)
+            self.detect_walls, self.wall_band, self.wall_cols, self.wall_pct,
+            self.device)
         self.pub_det.publish(String(data=json.dumps(dets)))
         self.pub_brake.publish(Bool(data=brake))
         if self.publish_annotated:
