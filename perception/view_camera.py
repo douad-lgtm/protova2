@@ -22,7 +22,7 @@ import numpy as np
 import cv2
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import CompressedImage
 
 
@@ -34,7 +34,10 @@ class CamViewer(Node):
         self.n = 0
         self.t0 = time.time()
         # QoS best-effort : indispensable pour matcher le flux camera (capteur).
-        self.create_subscription(CompressedImage, topic, self.cb, qos_profile_sensor_data)
+        # depth=1 : toujours la DERNIERE image, pas de file d'attente (latence mini)
+        qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+                         history=HistoryPolicy.KEEP_LAST, depth=1)
+        self.create_subscription(CompressedImage, topic, self.cb, qos)
         self.get_logger().info(f"abonne a {topic} (best-effort) — en attente d'images...")
 
     def cb(self, msg):

@@ -24,7 +24,7 @@ import numpy as np
 import cv2
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import qos_profile_sensor_data, QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import String, Bool
 from ultralytics import YOLO
@@ -211,9 +211,15 @@ class YoloDetect(Node):
         # QoS "sensor data" (best-effort) OBLIGATOIRE pour un flux d'images sur WiFi :
         # en RELIABLE, DDS retransmet et le flux se bloque -> le PC ne recoit rien.
         # C'est la meme QoS que les topics de la camera (qui, eux, traversent bien).
+        # depth=1 : on ne garde QUE la derniere image. Sinon les images s'empilent
+        # sur un WiFi lent et la latence grimpe a plusieurs secondes.
+        qos_img = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+                             history=HistoryPolicy.KEEP_LAST, depth=1)
         self.pub_img = self.create_publisher(CompressedImage,
-                                             '/obstacle/annotated/compressed',
-                                             qos_profile_sensor_data)
+                                             '/obstacle/annotated/compressed', qos_img)
+        # largeur de l'image publiee (reduite = moins de donnees = moins de latence)
+        self.annot_width = int(g('annot_width', 640))
+        self.annot_quality = int(g('annot_quality', 55))
         self.create_subscription(CompressedImage, self.color_topic, self.cb_color, qos_profile_sensor_data)
         self.create_subscription(Image, self.depth_topic, self.cb_depth, qos_profile_sensor_data)
         self.create_timer(1.0 / rate, self.tick)
@@ -241,7 +247,13 @@ class YoloDetect(Node):
         self.pub_det.publish(String(data=json.dumps(dets)))
         self.pub_brake.publish(Bool(data=brake))
         if self.publish_annotated:
-            ok, jpg = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            out = annotated
+            if self.annot_width and annotated.shape[1] > self.annot_width:
+                sc = self.annot_width / annotated.shape[1]
+                out = cv2.resize(annotated, (self.annot_width,
+                                             int(annotated.shape[0] * sc)))
+            ok, jpg = cv2.imencode('.jpg', out,
+                                   [cv2.IMWRITE_JPEG_QUALITY, self.annot_quality])
             if ok:
                 m = CompressedImage()
                 m.header.stamp = self.get_clock().now().to_msg()
