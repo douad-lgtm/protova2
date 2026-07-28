@@ -2,7 +2,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[french]{babel}
-\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage[a4paper,margin=2.2cm]{geometry}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{booktabs}
@@ -10,10 +10,15 @@
 \usepackage{titlesec}
 \usepackage{fancyhdr}
 \usepackage{amssymb,amsmath}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 
 \definecolor{problue}{RGB}{20,80,150}
 \definecolor{progray}{RGB}{90,90,90}
 \definecolor{prolight}{RGB}{236,242,248}
+\definecolor{prored}{RGB}{190,40,40}
+\definecolor{progreen}{RGB}{30,120,60}
+\definecolor{proorange}{RGB}{220,130,20}
 
 \titleformat{\section}{\color{problue}\large\bfseries}{\thesection.}{0.6em}{}
 \titleformat{\subsection}{\color{progray}\normalsize\bfseries}{\thesubsection}{0.6em}{}
@@ -24,6 +29,17 @@
 \rhead{\small\color{progray}Douae Sebti}
 \cfoot{\small\color{progray}\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
+
+\tikzset{
+  bloc/.style={draw=problue, fill=prolight, rounded corners=2pt, minimum height=8mm,
+               minimum width=24mm, align=center, font=\small},
+  capteur/.style={draw=progreen, fill=green!8, rounded corners=2pt, minimum height=8mm,
+               minimum width=24mm, align=center, font=\small},
+  humain/.style={draw=proorange, fill=orange!10, rounded corners=2pt, minimum height=8mm,
+               minimum width=24mm, align=center, font=\small},
+  fleche/.style={-{Stealth[length=2.5mm]}, thick, color=progray},
+  topic/.style={font=\scriptsize\ttfamily, color=progray}
+}
 
 \begin{document}
 
@@ -59,24 +75,73 @@ Les essais ont montré une limite physique de la caméra temps-de-vol : les surf
 absorbant l'infrarouge (caoutchouc, matériaux sombres) renvoient une profondeur
 invalide et deviennent invisibles. J'ai donc conçu un nœud d'AEB par
 \textbf{fusion de capteurs}, exécuté localement sur la Jetson (réaction $\sim$30~Hz,
-sans dépendre du PC ni du réseau) :
-\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
-  \item \textbf{LiDAR} (balayage 360°) : distance au plus proche obstacle dans les
-        secteurs avant \emph{et} arrière ($\pm$45°) — fiable sur toutes les surfaces ;
-  \item \textbf{caméra de profondeur} : couloir frontal, en complément (objets hors
-        du plan du LiDAR) ;
-  \item distance de danger retenue $=$ \textbf{minimum des deux capteurs}, par direction.
-\end{itemize}
+sans dépendre du PC ni du réseau) : le LiDAR (fiable sur toutes les surfaces,
+balayage 360°) fournit la distance au plus proche obstacle dans les secteurs avant
+\emph{et} arrière, la caméra complète sur le couloir frontal, et la distance de
+danger retenue est le \textbf{minimum des deux capteurs} pour chaque direction.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=1mm, y=1mm, minitopic/.style={font=\tiny\ttfamily, color=progray}]
+  \node[capteur] (lidar) at (0,26)  {LiDAR\\RPLIDAR A1};
+  \node[capteur] (cam)   at (0,6)   {Caméra\\profondeur};
+  \node[humain]  (g29)   at (0,-16) {Volant G29\\(conducteur, PC)};
+  \node[bloc]    (aeb)   at (44,16) {\textbf{aeb\_fusion}\\(Jetson, 30 Hz)};
+  \node[bloc]    (mux)   at (88,0)  {twist\_mux\\(priorités)};
+  \node[bloc]    (tx)    at (119,0) {TX série};
+  \node[bloc]    (pico)  at (147,0) {Pico\\ESC + servo};
+  \draw[fleche] (lidar.east) -- node[minitopic, above, sloped, pos=0.5]{/scan} (aeb.west);
+  \draw[fleche] (cam.east)   -- node[minitopic, below, sloped, pos=0.5]{/camera/depth} (aeb.west);
+  \draw[fleche] (aeb.east)   -- node[minitopic, above, sloped, pos=0.5, align=center]{/cmd\_vel\_aeb\\prio 255} (mux.west);
+  \draw[fleche] (g29.east)   -- node[minitopic, below, sloped, pos=0.55, align=center]{/cmd\_vel\_G29\\prio 30} (mux.west);
+  \draw[fleche] (mux.east)   -- node[minitopic, above]{/cmd\_vel} (tx.west);
+  \draw[fleche] (tx.east)    -- node[minitopic, above]{série} (pico.west);
+\end{tikzpicture}
+\caption{Architecture de l'AEB : la fusion capteurs s'insère dans la chaîne de commande
+existante via le multiplexeur, avec la priorité maximale — l'arrêt d'urgence l'emporte
+toujours sur le conducteur.}
+\end{figure}
+
 Un point matériel important a été identifié au passage : le LiDAR étant monté
 « moteur à l'arrière », l'avant réel du véhicule correspond à \textbf{180°} du repère
 du scan. Je l'ai vérifié sur données réelles (obstacle à 0,67~m derrière contre
-3,2~m d'espace libre devant) et corrigé dans tous les nœuds concernés.
+3,2~m d'espace libre devant) et corrigé dans tous les nœuds concernés
+(figure~\ref{fig:secteurs}).
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=0.9]
+  % secteurs surveilles
+  \fill[green!20] (0,0) -- (30:2.6) arc (30:-30:2.6) -- cycle;
+  \fill[red!15] (0,0) -- (150:2.6) arc (150:210:2.6) -- cycle;
+  % couloir camera (avant)
+  \fill[blue!12, opacity=0.8] (0.35,0.28) -- (2.6,0.9) -- (2.6,-0.9) -- (0.35,-0.28) -- cycle;
+  % vehicule
+  \draw[fill=prolight, draw=problue, rounded corners=2pt] (-1.05,-0.55) rectangle (1.05,0.55);
+  \node[font=\scriptsize, color=problue] at (0,0.3) {véhicule};
+  \fill[progray] (0,0) circle (0.1);
+  \node[font=\scriptsize, color=progray, below] at (0,-0.08) {LiDAR};
+  % annotations
+  \node[font=\scriptsize, color=progreen, align=center] at (3.6,1.15) {secteur AVANT $\pm45°$\\(= 180° du scan)};
+  \node[font=\scriptsize, color=prored, align=center] at (-3.55,1.15) {secteur ARRIÈRE $\pm45°$\\(= 0° du scan)};
+  \node[font=\scriptsize, color=problue] at (3.4,-1.3) {couloir caméra (profondeur)};
+  \draw[fleche, color=progreen] (1.15,0) -- (1.9,0) node[right, font=\scriptsize, color=progreen]{sens de marche avant};
+  % moteur a l'arriere
+  \node[font=\scriptsize, color=progray] at (-1.6,-0.85) {moteur};
+\end{tikzpicture}
+\caption{Vue de dessus des zones surveillées. Le LiDAR balaie 360° : j'en extrais un
+secteur avant et un secteur arrière ($\pm$45°) ; la caméra couvre un couloir frontal.
+Le montage « moteur à l'arrière » décale l'avant réel à 180° du repère du scan.}
+\label{fig:secteurs}
+\end{figure}
 
 \section{Calibration du freinage au banc d'essai}
 Premier constat en essai : couper les gaz ne freine pas — le variateur (ESC) passe
 en \textbf{roue libre} et le véhicule continue sur son élan. J'ai donc mis en place un
-\textbf{banc de mesure} (roues levées, chronométrage par l'encodeur de roue) pour
-caractériser l'arrêt et calibrer un \textbf{freinage actif} par contre-impulsion :
+\textbf{banc de mesure} : roues levées, un script publie une consigne d'avance
+pendant 2~s puis déclenche la stratégie de freinage à évaluer, et le \textbf{temps
+d'arrêt est chronométré sur l'encodeur de roue} (mesure objective, indépendante du
+ressenti). Résultats :
 
 \begin{center}
 \renewcommand{\arraystretch}{1.2}
@@ -99,28 +164,99 @@ mouvement inverse parasite.
 
 \section{Comportement final de l'AEB}
 \begin{itemize}[leftmargin=1.4em,itemsep=2pt]
-  \item \textbf{Bidirectionnel} : la marche avant est freinée par les obstacles
-        détectés devant, la marche arrière par ceux détectés derrière (LiDAR 360°).
-        Les deux distances sont affichées en continu à l'écran.
-  \item \textbf{Prioritaire} : la commande d'arrêt passe par le multiplexeur de
-        commandes (\texttt{twist\_mux}) avec la priorité maximale (255) — le véhicule
+  \item \textbf{Bidirectionnel} : marche avant freinée par les obstacles avant,
+        marche arrière par les obstacles arrière ; les deux distances sont affichées
+        en continu.
+  \item \textbf{Prioritaire} : priorité maximale dans le multiplexeur — le véhicule
         \textbf{reste arrêté même accélérateur enfoncé}.
   \item \textbf{Échappatoire} : la direction opposée au danger reste toujours
-        disponible pour s'écarter de l'obstacle.
+        disponible.
   \item \textbf{Distance de freinage dynamique} : les seuils croissent avec la
-        vitesse réelle mesurée par l'encodeur
-        ($d_{\text{arrêt}} = d_0 + k\,|v|$) — plus le véhicule roule vite, plus il
-        freine tôt, comme un AEB réel.
-  \item \textbf{Réactivité} : j'ai également réduit le délai de reprise en main après
-        un arrêt d'urgence (temporisation du multiplexeur ramenée de 1~s à 0,3~s).
+        vitesse réelle mesurée (figure~\ref{fig:seuils}) — plus le véhicule roule
+        vite, plus il freine tôt.
+  \item \textbf{Réactivité} : délai de reprise en main après un arrêt ramené de 1~s
+        à 0,3~s (temporisation du multiplexeur).
 \end{itemize}
 
-\section{Validation par enregistrement embarqué}
-Pour trancher entre ressenti de conduite et comportement réel, j'ai enregistré
-pendant la conduite une « boîte noire » synchronisant les distances LiDAR, la
-commande du conducteur, la sortie de l'AEB, la commande moteur et la vitesse
-encodeur. L'enregistrement confirme le fonctionnement :
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=1.0]
+  % axes
+  \draw[fleche] (0,0) -- (7.2,0) node[below left, font=\scriptsize, color=black]{vitesse mesurée $|v|$};
+  \draw[fleche] (0,0) -- (0,4.0) node[above, font=\scriptsize, color=black]{distance à l'obstacle (m)};
+  \foreach \y/\l in {0.8/0{,}8, 1.6/1{,}6, 2.6/2{,}6, 3.3/3{,}3}
+     \draw (0.06,\y) -- (-0.06,\y) node[left, font=\scriptsize]{\l};
+  % zones (calculees pour v de 0 a 1.2 : stop=0.8+0.5v ; slow=1.6+1.0v) echelle x: v*5
+  \fill[red!14]   (0,0) -- (0,0.8) -- (6,1.4) -- (6,0) -- cycle;
+  \fill[orange!18](0,0.8) -- (0,1.6) -- (6,2.8) -- (6,1.4) -- cycle;
+  \fill[green!12] (0,1.6) -- (0,3.6) -- (6,3.6) -- (6,2.8) -- cycle;
+  \draw[thick, color=prored]   (0,0.8) -- (6,1.4) node[right, font=\scriptsize, align=left]{$d_{\text{arrêt}} = 0{,}8 + 0{,}5\,|v|$};
+  \draw[thick, color=proorange](0,1.6) -- (6,2.8) node[right, font=\scriptsize, align=left]{$d_{\text{ralenti}} = 1{,}6 + 1{,}0\,|v|$};
+  \node[font=\scriptsize, color=prored]   at (3,0.55) {ARRÊT d'urgence};
+  \node[font=\scriptsize, color=proorange] at (3,1.75) {ralentissement progressif};
+  \node[font=\scriptsize, color=progreen] at (3,3.15) {conduite libre};
+\end{tikzpicture}
+\caption{Seuils de freinage dynamiques : les frontières d'arrêt et de ralentissement
+montent avec la vitesse réelle du véhicule (mesurée par l'encodeur), comme sur un AEB
+automobile.}
+\label{fig:seuils}
+\end{figure}
 
+\section{Validation par « boîte noire » embarquée}
+\subsection{Principe}
+En essais de conduite, le ressenti du pilote ne suffit pas : « la voiture ne
+s'arrête pas » peut aussi bien venir d'un capteur, de la décision de l'AEB, du
+multiplexeur, de la liaison série ou de la mécanique. Pour trancher, j'ai appliqué
+la méthode des \textbf{enregistreurs de données automobiles} (EDR / data logger) :
+capturer \emph{simultanément}, pendant la conduite, toutes les grandeurs de la
+chaîne, puis relire la chronologie à froid.
+
+\subsection{Mise en œuvre}
+L'outil est un \textbf{nœud ROS~2 en Python} (bibliothèque \texttt{rclpy}, sans
+logiciel externe) que j'exécute sur la Jetson pendant l'essai. Il s'abonne en
+parallèle à cinq sources et échantillonne toutes les 0,5~s pendant 90~s :
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Colonne} & \textbf{Sujet ROS 2} & \textbf{Grandeur} & \textbf{Maillon observé} \\
+\midrule
+AVANT / ARR & \texttt{/scan} & distances min.\ des 2 secteurs & perception LiDAR \\
+pédale      & \texttt{/cmd\_vel\_G29} & consigne du conducteur & volant G29 \\
+AEBpub      & \texttt{/cmd\_vel\_aeb} & sortie de l'AEB & décision \\
+SORTIE      & \texttt{/cmd\_vel} & sortie du multiplexeur & arbitrage \\
+roues       & \texttt{/velocity} & vitesse encodeur & réalité mécanique \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[node distance=4mm and 14mm]
+  \node[capteur] (s1) {/scan};
+  \node[humain, below=of s1] (s2) {/cmd\_vel\_G29};
+  \node[bloc, below=of s2] (s3) {/cmd\_vel\_aeb};
+  \node[bloc, below=of s3] (s4) {/cmd\_vel};
+  \node[capteur, below=of s4] (s5) {/velocity};
+  \node[bloc, right=16mm of s3, minimum height=20mm] (bb) {\textbf{boîte noire}\\nœud Python\\(rclpy)\\échant.\ 0,5 s};
+  \node[bloc, right=14mm of bb, minimum height=20mm, align=left, font=\scriptsize\ttfamily] (out)
+       {t \ | AVANT | pédale | AEB | SORTIE | roues\\
+        47,1 | 0,77 \ | +0,16 \ | $-$0,50 | $-$0,50 \ | 0,35\\
+        48,2 | 0,66 \ | +0,20 \ | 0,00 \ \ | 0,00 \ \ | 0,00};
+  \tikzset{minitopic2/.style={font=\tiny\ttfamily, color=progray}}
+  \foreach \s in {s1,s2,s3,s4,s5} \draw[fleche] (\s.east) -- (bb.west);
+  \draw[fleche] (bb.east) -- node[minitopic2, below, pos=0.45]{chronologie} (out.west);
+\end{tikzpicture}
+\caption{La « boîte noire » : un nœud d'observation passif s'abonne à toute la chaîne
+en parallèle et produit une chronologie synchronisée, relue après l'essai.}
+\end{figure}
+
+En pratique : je lance l'enregistreur (en tâche de fond, via SSH), j'effectue la
+manœuvre à valider (accélérer vers l'obstacle en gardant la pédale, tenter de
+redémarrer\ldots), puis j'analyse le tableau produit.
+
+\subsection{Ce que l'enregistrement a démontré}
 \begin{center}
 \fcolorbox{problue}{prolight}{\parbox{0.93\textwidth}{\ttfamily\small
 t=47,1 s \ avant 0,77 m \ pédale +0,16 \ AEB $-$0,50 (impulsion de frein) \ roues 0,35\\
@@ -128,23 +264,30 @@ t=48,2 s \ avant 0,66 m \ \textbf{pédale +0,20 (enfoncée)} \ AEB 0,00 \ \textb
 }}
 \end{center}
 \vspace{2pt}
-\begin{center}\small\color{progray}
-Extrait : arrêt complet devant l'obstacle alors que l'accélérateur reste enfoncé.
-\end{center}
 
-Cette méthode a aussi révélé le délai de redémarrage d'une seconde (temporisation du
-multiplexeur), corrigé ensuite.
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+  \item l'arrêt complet \textbf{accélérateur enfoncé} est confirmé (pédale $+0{,}20$,
+        roues à 0) — le ressenti contraire venait d'essais antérieurs ;
+  \item le « non-redémarrage » ressenti est objectivé : \textbf{1~s de latence}
+        entre le relâchement de l'AEB et le retour de la main au conducteur
+        (temporisation du multiplexeur), corrigée ensuite (0,3~s) ;
+  \item le freinage arrière s'arrête net, sans avancée parasite.
+\end{itemize}
+
+Cette méthode ressenti $\rightarrow$ mesure $\rightarrow$ correction s'est révélée
+décisive à chaque étape de la séance ; je la réutiliserai pour les prochains
+réglages.
 
 \section{Bilan et suites}
 \textbf{Bilan.} Le véhicule dispose désormais d'un freinage d'urgence autonome
 bidirectionnel, fondé sur la fusion LiDAR--caméra, calibré expérimentalement
 (temps d'arrêt réduit de 1,94~s à 0,61~s) et validé en conduite réelle par
-enregistrement embarqué. L'ensemble du code et des mesures est archivé sur le dépôt
-Git du projet.
+enregistrement embarqué. L'ensemble du code, des scripts de banc et des mesures est
+archivé sur le dépôt Git du projet.
 
 \textbf{Suites envisagées.}
 \begin{itemize}[leftmargin=1.4em,itemsep=1pt]
-  \item affiner les coefficients de seuil dynamique ($k$) sur davantage d'essais au sol ;
+  \item affiner les coefficients de seuil dynamique sur davantage d'essais au sol ;
   \item vérifier le comportement du servomoteur de direction (point resté ouvert) ;
   \item intégrer l'AEB à la démonstration V2V complète (freinage $\rightarrow$ message
         DENM vers le véhicule voisin).
