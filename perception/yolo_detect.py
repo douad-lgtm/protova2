@@ -195,6 +195,8 @@ class YoloDetect(Node):
         self.wall_pct = int(g('wall_pct', 10))
 
         self.device = pick_device(g('device', 'auto'))
+        self.color_msg = None
+        self.depth_msg = None
         self.model = YOLO(model_path)
         try:
             self.model.to(self.device)
@@ -232,17 +234,24 @@ class YoloDetect(Node):
             f"cibles={self.targets}, frein<{self.brake_dist} m, device={self.device}")
 
     def cb_color(self, msg):
-        arr = np.frombuffer(bytes(msg.data), np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if img is not None:
-            self.bgr = img
+        # callback ULTRA-LEGER : on stocke le message, le decodage se fait dans tick()
+        # (1 fois par cycle, sur la DERNIERE image seulement). Decoder ici a 15 Hz
+        # saturait le CPU -> les callbacks prenaient du retard -> latence de plusieurs s.
+        self.color_msg = msg
 
     def cb_depth(self, msg):
-        self.depth = depth_to_meters(msg)
+        self.depth_msg = msg
 
     def tick(self):
-        if self.bgr is None:
+        if self.color_msg is None:
             return
+        cmsg = self.color_msg
+        arr = np.frombuffer(bytes(cmsg.data), np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return
+        self.bgr = img
+        self.depth = depth_to_meters(self.depth_msg) if self.depth_msg is not None else None
         dets, brake, annotated = run_detection(
             self.model, self.bgr, self.depth, self.targets, self.conf,
             self.brake_dist, self.brake_on_any,
@@ -260,7 +269,7 @@ class YoloDetect(Node):
                                    [cv2.IMWRITE_JPEG_QUALITY, self.annot_quality])
             if ok:
                 m = CompressedImage()
-                m.header.stamp = self.get_clock().now().to_msg()
+                m.header.stamp = cmsg.header.stamp   # heure de capture -> latence mesurable
                 m.format = 'jpeg'
                 m.data = jpg.tobytes()
                 self.pub_img.publish(m)
