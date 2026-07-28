@@ -208,7 +208,12 @@ class YoloDetect(Node):
         # une autre machine (ex. YOLO sur la Jetson, visualisation sur le PC) sans
         # transporter le flux brut. Desactivable avec -p publish_annotated:=false.
         self.publish_annotated = bool(g('publish_annotated', True))
-        self.pub_img = self.create_publisher(CompressedImage, '/obstacle/annotated/compressed', 10)
+        # QoS "sensor data" (best-effort) OBLIGATOIRE pour un flux d'images sur WiFi :
+        # en RELIABLE, DDS retransmet et le flux se bloque -> le PC ne recoit rien.
+        # C'est la meme QoS que les topics de la camera (qui, eux, traversent bien).
+        self.pub_img = self.create_publisher(CompressedImage,
+                                             '/obstacle/annotated/compressed',
+                                             qos_profile_sensor_data)
         self.create_subscription(CompressedImage, self.color_topic, self.cb_color, qos_profile_sensor_data)
         self.create_subscription(Image, self.depth_topic, self.cb_depth, qos_profile_sensor_data)
         self.create_timer(1.0 / rate, self.tick)
