@@ -218,10 +218,14 @@ class YoloDetect(Node):
         self.pub_img = self.create_publisher(CompressedImage,
                                              '/obstacle/annotated/compressed', qos_img)
         # largeur de l'image publiee (reduite = moins de donnees = moins de latence)
-        self.annot_width = int(g('annot_width', 640))
-        self.annot_quality = int(g('annot_quality', 55))
-        self.create_subscription(CompressedImage, self.color_topic, self.cb_color, qos_profile_sensor_data)
-        self.create_subscription(Image, self.depth_topic, self.cb_depth, qos_profile_sensor_data)
+        self.annot_width = int(g('annot_width', 960))
+        self.annot_quality = int(g('annot_quality', 80))
+        # depth=1 : on ne traite QUE l'image la plus recente. En depth=5, la camera
+        # (15 Hz) remplit la file plus vite qu'on ne traite (10 Hz) -> retard accumule.
+        qos_in = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+                            history=HistoryPolicy.KEEP_LAST, depth=1)
+        self.create_subscription(CompressedImage, self.color_topic, self.cb_color, qos_in)
+        self.create_subscription(Image, self.depth_topic, self.cb_depth, qos_in)
         self.create_timer(1.0 / rate, self.tick)
         self.get_logger().info(
             f"yolo_detect prêt : couleur={self.color_topic}, profondeur={self.depth_topic}, "
