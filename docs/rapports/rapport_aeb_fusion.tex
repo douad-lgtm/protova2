@@ -45,8 +45,8 @@
 
 \begin{center}
 {\color{problue}\Large\bfseries Freinage d'urgence autonome (AEB) par fusion LiDAR--caméra}\\[4pt]
-{\large Conception, calibration expérimentale et validation sur véhicule}\\[8pt]
-{\color{progray} Douae Sebti — Projet ProtoVA 2 — séance du 24 juillet 2026}
+{\large Conception, calibration expérimentale, validation sur véhicule\\et portage de la perception sur calculateur embarqué}\\[8pt]
+{\color{progray} Douae Sebti — Projet ProtoVA 2 — séances des 24 et 28 juillet 2026}
 \end{center}
 \vspace{2pt}
 \hrule
@@ -278,17 +278,64 @@ Cette méthode ressenti $\rightarrow$ mesure $\rightarrow$ correction s'est rév
 décisive à chaque étape de la séance ; je la réutiliserai pour les prochains
 réglages.
 
+\section{Portage de la perception sur le calculateur embarqué}
+\subsection{Constat}
+La détection YOLO s'exécutait initialement sur le PC : les images de la caméra
+traversaient le WiFi, l'inférence tournait sur le processeur, et la visualisation
+accusait un retard de l'ordre de 0,5 à 0,8~s. Ce retard n'affectait pas la sécurité
+(le freinage est calculé localement sur la Jetson, sans passer par le réseau), mais
+il pénalisait la supervision et interdisait toute décision rapide fondée sur la
+classification des objets.
+
+\subsection{Démarche}
+J'ai d'abord vérifié que le PC ne disposait pas d'accélérateur exploitable (carte
+graphique AMD, CUDA indisponible pour PyTorch). J'ai donc porté la détection sur le
+\textbf{GPU de la Jetson Orin} : installation de la pile CUDA (JetPack~6.2.1 :
+CUDA~12.6, cuDNN, TensorRT), puis de PyTorch dans sa version compilée pour Jetson et
+de la bibliothèque de détection. J'ai ensuite mesuré le gain avec un banc
+d'inférence dédié :
+
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Exécution} & \textbf{Temps d'inférence} & \textbf{Cadence} & \textbf{Gain} \\
+\midrule
+Processeur (Jetson) & 344,1 ms / image & 2,9 im/s & --- \\
+\textbf{GPU CUDA (Jetson Orin)} & \textbf{30,3 ms / image} & \textbf{33 im/s} & $\times$\,\textbf{11} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Architecture retenue}
+La détection s'exécute désormais \textbf{à bord}, à 10~Hz (contre 5~Hz auparavant),
+et les images ne transitent plus par le réseau pour être analysées. Pour conserver la
+supervision depuis le poste de pilotage sans réintroduire de latence, le nœud publie
+une \textbf{image déjà annotée, compressée en JPEG} : seule cette image légère
+traverse le WiFi. Le véhicule gagne ainsi en autonomie — il peut classifier un piéton
+et déclencher une alerte V2V sans dépendre du PC.
+
+\subsection{Difficultés rencontrées}
+L'installation a demandé plusieurs corrections : le dépôt de paquets NVIDIA pour
+Jetson avait changé d'adresse ; la résolution automatique des dépendances installait
+une version générique de PyTorch \emph{dépourvue} du support CUDA pour Jetson (il a
+fallu installer explicitement les archives officielles) ; une bibliothèque
+d'algèbre creuse manquait au chargement ; enfin, la version de la bibliothèque de
+calcul numérique a dû être choisie avec soin pour rester compatible avec ROS~2.
+
 \section{Bilan et suites}
 \textbf{Bilan.} Le véhicule dispose désormais d'un freinage d'urgence autonome
 bidirectionnel, fondé sur la fusion LiDAR--caméra, calibré expérimentalement
 (temps d'arrêt réduit de 1,94~s à 0,61~s) et validé en conduite réelle par
-enregistrement embarqué. L'ensemble du code, des scripts de banc et des mesures est
+enregistrement embarqué. La chaîne de direction a par ailleurs été vérifiée
+(balayage commandé du servomoteur), et la perception visuelle a été portée sur le
+GPU du calculateur embarqué (inférence 11 fois plus rapide). L'ensemble du code, des scripts de banc et des mesures est
 archivé sur le dépôt Git du projet.
 
 \textbf{Suites envisagées.}
 \begin{itemize}[leftmargin=1.4em,itemsep=1pt]
   \item affiner les coefficients de seuil dynamique sur davantage d'essais au sol ;
-  \item vérifier le comportement du servomoteur de direction (point resté ouvert) ;
+  \item exploiter la classification embarquée pour enrichir l'alerte V2V (type d'obstacle) ;
   \item intégrer l'AEB à la démonstration V2V complète (freinage $\rightarrow$ message
         DENM vers le véhicule voisin).
 \end{itemize}
