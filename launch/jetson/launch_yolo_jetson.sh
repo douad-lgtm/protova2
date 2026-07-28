@@ -14,5 +14,9 @@ pkill -9 -f "[y]olo_detect" 2>/dev/null
 sleep 1
 
 # rate plus élevé qu'au PC : l'inférence GPU est ~10x plus rapide
+# annot_width:=0 = image PLEINE RESOLUTION native (nettete max, demande utilisatrice).
+# Compromis mesure : 1280px q85 -> ~320 ms de latence, ~6 Hz au PC (WiFi).
+# Pour plus de fluidite : -p annot_width:=960 -p annot_quality:=75 (~230 ms, 10 Hz).
 python3 /home/protova2/yolo_detect.py --ros-args \
-  -p show:=false -p publish_annotated:=true -p rate:=10.0 "$@"
+  -p show:=false -p publish_annotated:=true -p rate:=10.0 \
+  -p annot_width:=0 -p annot_quality:=85 "$@"
