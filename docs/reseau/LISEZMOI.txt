@@ -1,0 +1,19 @@
+DOSSIER RESEAU — mesures avec courbes (ProtoVA 2)
+==================================================
+Chaque script MESURE EN DIRECT puis trace sa courbe (PNG) et sauve les
+donnees brutes (.txt). A chaque lancement, la courbe est REGENEREE avec
+les nouvelles valeurs.
+
+  python3 mesure_latence.py [cible] [duree_s]   -> courbe_latence.png
+      ex : python3 mesure_latence.py 10.37.11.34 30      (WiFi Jetson)
+      ex : python3 mesure_latence.py 172.16.48.6 30      (5G Jetson)
+
+  python3 mesure_debit.py [duree_s]             -> courbe_debit.png
+      style speedtest : 4 telechargements paralleles + compteur d'octets
+
+  python3 mesure_fps.py [duree_s]               -> courbe_fps.png
+      prerequis : camera lancee sur la Jetson + env ROS charge :
+      export ROS_DOMAIN_ID=125 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      source /opt/ros/humble/setup.bash
+
+Ouvrir une courbe : xdg-open courbe_latence.png
