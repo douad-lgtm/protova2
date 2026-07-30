@@ -1,53 +1,56 @@
 #!/usr/bin/env python3
 """
-COURBE 2 — DÉBIT « style speedtest » (comme fast.com).
-Sur quoi ça se base : Linux compte TOUS les octets recus par chaque interface
-reseau dans /sys/class/net/<iface>/statistics/rx_bytes. On lance plusieurs
-telechargements en parallele (pour saturer la connexion, comme le fait un
-speedtest), et chaque seconde on lit ce compteur :
-    debit(t) = (octets_maintenant - octets_il_y_a_1s) x 8 / 1e6   [Mbps]
+COURBE 2 — DÉBIT du lien PC <-> Jetson (le chemin de la teleoperation !).
+Sur quoi ça se base : iperf3 envoie un flux TCP a fond entre les 2 machines
+et mesure le debit reellement transfere CHAQUE SECONDE (sortie JSON -J,
+champ intervals[]) -> chaque seconde = un point de la courbe.
+Les 2 sens sont mesures : PC->Jetson (commandes) et Jetson->PC (video).
+Le script demarre lui-meme le serveur iperf3 sur la Jetson (via SSH).
 
-Usage : python3 mesure_debit.py [duree_s]     (defaut 20 s)
+Usage : python3 mesure_debit.py [ip_jetson] [duree_s]   (defaut 10.37.11.34, 20 s)
 """
-import subprocess, sys, time
+import json, subprocess, sys
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-duree = int(sys.argv[1]) if len(sys.argv) > 1 else 20
-URL = "https://proof.ovh.net/files/1Gb.dat"      # gros fichier public
-FLUX = 4                                          # 4 telechargements paralleles
+jetson = sys.argv[1] if len(sys.argv) > 1 else "10.37.11.34"
+duree = int(sys.argv[2]) if len(sys.argv) > 2 else 20
 
-# interface qui porte l'internet (celle de la route par defaut)
-route = subprocess.run(["ip", "route", "get", "8.8.8.8"],
-                       capture_output=True, text=True).stdout
-iface = route.split(" dev ")[1].split()[0]
-compteur = f"/sys/class/net/{iface}/statistics/rx_bytes"
-print(f"interface : {iface} | {FLUX} flux vers {URL} | {duree} s")
+# 1) demarrer le serveur iperf3 sur la Jetson (idempotent)
+subprocess.run(["ssh", "-o", "ConnectTimeout=8", f"protova2@{jetson}",
+                "pkill -x iperf3 2>/dev/null; nohup iperf3 -s >/dev/null 2>&1 & disown; echo ok"],
+               capture_output=True, text=True, timeout=20)
 
-# lancer les telechargements (jetes dans /dev/null : seul le debit compte)
-dls = [subprocess.Popen(["curl", "-s", "-o", "/dev/null",
-                         "--max-time", str(duree + 2), URL]) for _ in range(FLUX)]
+def mesurer(sens_reverse):
+    cmd = ["iperf3", "-c", jetson, "-t", str(duree), "-J"]
+    if sens_reverse:
+        cmd.append("-R")                      # -R = la Jetson emet, le PC recoit
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=duree + 15)
+    d = json.loads(r.stdout)
+    if "error" in d:
+        sys.exit("iperf3 : " + d["error"])
+    return [i["sum"]["bits_per_second"] / 1e6 for i in d["intervals"]]
 
-lire = lambda: int(open(compteur).read())
-mbps, prev = [], lire()
-for _ in range(duree):
-    time.sleep(1)
-    cur = lire()
-    mbps.append((cur - prev) * 8 / 1e6)
-    prev = cur
-for p in dls:
-    p.terminate()
+print(f"debit PC->Jetson ({duree} s)...")
+montant = mesurer(False)
+print(f"debit Jetson->PC ({duree} s)...")
+descendant = mesurer(True)
 
-moy = sum(mbps) / len(mbps)
-print(f"debit : moy {moy:.1f} Mbps | pic {max(mbps):.1f}")
-open("debit_donnees.txt", "w").write("\n".join(f"{m:.2f}" for m in mbps))
+m1, m2 = sum(montant)/len(montant), sum(descendant)/len(descendant)
+print(f"PC->Jetson : moy {m1:.0f} Mbps | Jetson->PC : moy {m2:.0f} Mbps")
+open("debit_donnees.txt", "w").write(
+    "PC->Jetson: " + " ".join(f"{x:.1f}" for x in montant) +
+    "\nJetson->PC: " + " ".join(f"{x:.1f}" for x in descendant) + "\n")
 
 plt.figure(figsize=(9, 4.5))
-t = range(1, len(mbps) + 1)
-plt.fill_between(t, mbps, color="#1E783C", alpha=0.25)
-plt.plot(t, mbps, color="#1E783C", marker="o", ms=4, lw=1.5)
-plt.axhline(moy, color="#BE2828", ls="--", lw=1, label=f"moyenne {moy:.0f} Mbps")
-plt.title(f"Débit Internet (style speedtest, {FLUX} flux, interface {iface})")
+t1 = range(1, len(montant) + 1); t2 = range(1, len(descendant) + 1)
+plt.fill_between(t1, montant, color="#1E783C", alpha=0.15)
+plt.plot(t1, montant, color="#1E783C", marker="o", ms=4, lw=1.5,
+         label=f"PC → Jetson (moy {m1:.0f} Mbps)")
+plt.fill_between(t2, descendant, color="#DC8214", alpha=0.15)
+plt.plot(t2, descendant, color="#DC8214", marker="o", ms=4, lw=1.5,
+         label=f"Jetson → PC (moy {m2:.0f} Mbps)")
+plt.title(f"Débit du lien PC ↔ Jetson (iperf3, {duree} s par sens)")
 plt.xlabel("temps (s)"); plt.ylabel("Mbps")
 plt.legend(); plt.grid(alpha=0.3); plt.ylim(bottom=0); plt.tight_layout()
 plt.savefig("courbe_debit.png", dpi=130)

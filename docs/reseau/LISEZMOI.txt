@@ -9,7 +9,7 @@ les nouvelles valeurs.
       ex : python3 mesure_latence.py 172.16.48.6 30      (5G Jetson)
 
   python3 mesure_debit.py [duree_s]             -> courbe_debit.png
-      style speedtest : 4 telechargements paralleles + compteur d'octets
+      lien PC<->Jetson via iperf3 (les 2 sens, seconde par seconde)
 
   python3 mesure_fps.py [duree_s]               -> courbe_fps.png
       prerequis : camera lancee sur la Jetson + env ROS charge :
