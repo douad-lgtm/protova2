@@ -1,5 +1,0 @@
-PING 10.37.11.34 (10.37.11.34) 56(84) bytes of data.
-
---- 10.37.11.34 ping statistics ---
-150 packets transmitted, 150 received, 0% packet loss, time 29936ms
-rtt min/avg/max/mdev = 4.505/81.006/309.552/66.850 ms, pipe 2
