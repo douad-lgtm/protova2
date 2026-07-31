@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 
 cible = sys.argv[1] if len(sys.argv) > 1 else "10.37.11.34"
 duree = int(sys.argv[2]) if len(sys.argv) > 2 else 30
+# nom du reseau deduit de l'IP cible (pour le titre de la courbe)
+reseau = "5G" if cible.startswith("172.16.48.") else ("WiFi" if cible.startswith("10.37.") else cible)
 INTERVALLE = 0.2                      # 1 ping toutes les 0,2 s
 n = int(duree / INTERVALLE)
 
@@ -32,7 +34,7 @@ open("latence_donnees.txt", "w").write("\n".join(map(str, rtt)))
 plt.figure(figsize=(9, 4.5))
 plt.plot(temps, rtt, color="#14508C", lw=1)
 plt.axhline(moy, color="#BE2828", ls="--", lw=1, label=f"moyenne {moy:.1f} ms")
-plt.title(f"Latence réseau — ping vers {cible}")
+plt.title(f"Latence — réseau {reseau}")
 plt.xlabel("temps (s)"); plt.ylabel("RTT (ms)")
 plt.legend(); plt.grid(alpha=0.3); plt.tight_layout()
 plt.savefig("courbe_latence.png", dpi=130)

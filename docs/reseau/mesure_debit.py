@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 
 jetson = sys.argv[1] if len(sys.argv) > 1 else "10.37.11.34"
 duree = int(sys.argv[2]) if len(sys.argv) > 2 else 20
+reseau = "5G" if jetson.startswith("172.16.48.") else ("WiFi" if jetson.startswith("10.37.") else jetson)
 
 # 1) demarrer le serveur iperf3 sur la Jetson (idempotent)
 subprocess.run(["ssh", "-o", "ConnectTimeout=8", f"protova2@{jetson}",
@@ -46,11 +47,11 @@ plt.figure(figsize=(9, 4.5))
 t1 = range(1, len(montant) + 1); t2 = range(1, len(descendant) + 1)
 plt.fill_between(t1, montant, color="#1E783C", alpha=0.15)
 plt.plot(t1, montant, color="#1E783C", marker="o", ms=4, lw=1.5,
-         label=f"PC → Jetson (moy {m1:.0f} Mbps)")
+         label=f"upload PC → véhicule (moy {m1:.0f} Mbps)")
 plt.fill_between(t2, descendant, color="#DC8214", alpha=0.15)
 plt.plot(t2, descendant, color="#DC8214", marker="o", ms=4, lw=1.5,
-         label=f"Jetson → PC (moy {m2:.0f} Mbps)")
-plt.title(f"Débit du lien PC ↔ Jetson (iperf3, {duree} s par sens)")
+         label=f"download véhicule → PC (moy {m2:.0f} Mbps)")
+plt.title(f"Débit PC ↔ véhicule — réseau {reseau} (iperf3)")
 plt.xlabel("temps (s)"); plt.ylabel("Mbps")
 plt.legend(); plt.grid(alpha=0.3); plt.ylim(bottom=0); plt.tight_layout()
 plt.savefig("courbe_debit.png", dpi=130)

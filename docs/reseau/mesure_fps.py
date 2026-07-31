@@ -19,6 +19,9 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 
 duree = int(sys.argv[1]) if len(sys.argv) > 1 else 60
+import os
+# zenoh = chemin 5G ; FastDDS = chemin WiFi
+reseau = "5G" if "zenoh" in os.environ.get("RMW_IMPLEMENTATION", "") else "WiFi"
 TOPIC = "/camera/color/image_raw/compressed"
 
 class Compteur(Node):
@@ -49,7 +52,7 @@ open("fps_donnees.txt", "w").write("\n".join(map(str, fps)))
 plt.figure(figsize=(9, 4.5))
 plt.plot(range(1, len(fps) + 1), fps, color="#14508C", marker=".", lw=1.2)
 plt.axhline(moy, color="#BE2828", ls="--", lw=1, label=f"moyenne {moy:.1f} FPS")
-plt.title("FPS caméra reçus via le réseau (1280×720 JPEG)")
+plt.title(f"FPS caméra — réseau {reseau} (1280×720 JPEG)")
 plt.xlabel("temps (s)"); plt.ylabel("images/s")
 plt.legend(); plt.grid(alpha=0.3); plt.ylim(0, max(fps) + 5); plt.tight_layout()
 plt.savefig("courbe_fps.png", dpi=130)
