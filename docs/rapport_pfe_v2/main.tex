@@ -24,7 +24,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[french]{babel}
-\usepackage{fouriernc}            % police du template (New Century Schoolbook)
+\usepackage{lmodern}              % Latin Modern : nette et classique
 
 \OnehalfSpacing
 \setsecnumdepth{subsection}
@@ -44,7 +44,7 @@
 \newcommand\feline@chapter@marker[1][4cm]{%
   \sbox\feline@chapter{%
     \resizebox{!}{#1}{\fboxsep=1pt%
-      \colorbox{altenink}{\color{white}\thechapter}%
+      \colorbox{black}{\color{white}\thechapter}%
     }}%
     \rotatebox{90}{%
       \resizebox{%
@@ -63,14 +63,14 @@
   \renewcommand\chapternamenum{} \renewcommand\printchaptername{}
   \renewcommand\printchapternum{\null\hfill\feline@chm[2.5cm]\par}
   \renewcommand\afterchapternum{\par\vskip\midchapskip}
-  \renewcommand\printchaptertitle[1]{\color{altenink}\chaptitlefont\raggedleft ##1\par}
+  \renewcommand\printchaptertitle[1]{\color{black}\chaptitlefont\raggedleft ##1\par}
 }
 \makeatother
 \chapterstyle{daleifmodif}
 
 % sections en bleu ALTEN
-\setsecheadstyle{\Large\bfseries\color{altenink}}
-\setsubsecheadstyle{\large\bfseries\color{altenink}}
+\setsecheadstyle{\Large\bfseries\color{black}}
+\setsubsecheadstyle{\large\bfseries\color{black}}
 
 % ---------- en-têtes / pieds de page du template ----------
 \makepagestyle{myvf}
@@ -89,7 +89,7 @@
 \usepackage{amsfonts,amsmath,amssymb}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,shapes,backgrounds}
-\usepackage[colorlinks=true,allcolors=altenink]{hyperref}
+\usepackage[colorlinks=true,allcolors=black]{hyperref}
 \usepackage{memhfixc}
 
 % ---------- style « mission » (hérité du rapport 4A) ----------
