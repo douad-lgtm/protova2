@@ -32,7 +32,8 @@
 
 % ---------- couleurs : charte ALTEN (alten.fr = bleu marine profond) ----------
 \usepackage{xcolor}
-\definecolor{altenink}{RGB}{20,45,70}         % bleu encre ALTEN (titres)
+\definecolor{altenink}{RGB}{20,45,70}         % bleu encre ALTEN
+\definecolor{insared}{RGB}{226,0,26}          % rouge officiel INSA (blocs de chapitre)
 \definecolor{altenturquoise}{RGB}{0,150,118}  % accent secondaire
 
 % ---------- style de chapitre du template, recoloré ALTEN ----------
@@ -44,7 +45,7 @@
 \newcommand\feline@chapter@marker[1][4cm]{%
   \sbox\feline@chapter{%
     \resizebox{!}{#1}{\fboxsep=1pt%
-      \colorbox{black}{\color{white}\thechapter}%
+      \colorbox{insared}{\color{white}\thechapter}%
     }}%
     \rotatebox{90}{%
       \resizebox{%
