@@ -1,0 +1,54 @@
+\chapter*{Glossaire}
+\addcontentsline{toc}{chapter}{Glossaire}
+
+\begin{description}
+  \item[ROS 2 (Robot Operating System 2)] Intergiciel (middleware) robotique :
+  les programmes sont des \emph{nœuds} qui échangent des messages sur des
+  \emph{topics}. C'est l'ossature logicielle des deux ProtoVA.
+  \item[DDS / FastDDS] Couche de communication de ROS 2 (découverte et échange
+  de messages sur le réseau local). FastDDS est l'implémentation utilisée pour
+  la téléopération WiFi.
+  \item[Zenoh] Protocole de communication alternatif à DDS, adapté aux réseaux
+  contraints : utilisé pour faire transiter les topics ROS 2 à travers le lien
+  5G (architecture hub-and-spoke).
+  \item[5G] Cinquième génération de réseaux mobiles ; ses promesses de faible
+  latence et haut débit sont au c\oe ur de la téléopération de véhicules.
+  \item[Téléopération] Conduite à distance du véhicule : les commandes (volant,
+  vitesse) transitent par le réseau, le retour (caméra, capteurs) aussi.
+  \item[V2X / V2V] \emph{Vehicle-to-Everything} / \emph{Vehicle-to-Vehicle} :
+  communication directe entre véhicules pour la sécurité coopérative.
+  \item[ETSI ITS] Corpus de normes européennes des systèmes de transport
+  intelligents, dont les messages CAM et DENM.
+  \item[CAM (Cooperative Awareness Message)] Message périodique par lequel un
+  véhicule annonce sa position, son cap et sa vitesse à ses voisins.
+  \item[DENM (Decentralized Environmental Notification Message)] Message
+  d'alerte événementiel (ex. piéton détecté, freinage d'urgence).
+  \item[Vanetza] Pile logicielle open source implémentant les normes ETSI ITS
+  (GeoNetworking, CAM, DENM), embarquée sur les véhicules.
+  \item[Lidar] Capteur laser rotatif mesurant les distances aux obstacles sur
+  360° ; base de la cartographie et de l'évitement.
+  \item[SLAM (Simultaneous Localization And Mapping)] Construction d'une carte
+  de l'environnement tout en s'y localisant.
+  \item[Nav2] Pile de navigation autonome de ROS 2 (planification globale et
+  locale de trajectoire).
+  \item[Follow the gap] Méthode de navigation réactive : chercher la plus
+  grande ouverture dans le scan lidar et s'y engager.
+  \item[YOLO (You Only Look Once)] Réseau de neurones de détection d'objets en
+  temps réel, utilisé pour la détection de piétons.
+  \item[CUDA / GPU] Calcul parallèle sur carte graphique (ici celle de la
+  Jetson) pour accélérer l'inférence du réseau de neurones.
+  \item[AEB (Autonomous Emergency Braking)] Freinage d'urgence automatique
+  déclenché par la fusion des capteurs.
+  \item[twist\_mux] Multiplexeur de commandes de vitesse ROS 2 : arbitre par
+  priorité entre téléopération, navigation autonome et arrêt d'urgence.
+  \item[Odométrie] Estimation du déplacement du véhicule à partir de la
+  rotation de ses roues (encodeurs).
+  \item[Encodeur en quadrature] Capteur délivrant deux signaux déphasés
+  permettant de mesurer sens et vitesse de rotation.
+  \item[Trigger de Schmitt] Circuit à hystérésis qui transforme un signal
+  bruité en signal numérique propre (anti-rebond matériel).
+  \item[rosbridge] Passerelle qui expose les topics ROS 2 en WebSocket/JSON,
+  permettant à une page web de dialoguer avec le robot.
+  \item[Jetson] Ordinateur embarqué NVIDIA avec GPU intégré, cerveau des
+  véhicules ProtoVA.
+\end{description}

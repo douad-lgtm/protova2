@@ -1,0 +1,43 @@
+\chapter{Communication véhicule-à-véhicule (V2V)}
+\label{chap:v2v}
+% ⭐ TON chapitre vedette : contribution conçue et réalisée de bout en bout
+% par toi, from scratch. Rédige-le en « j'ai choisi / j'ai conçu / j'ai
+% démontré ».
+
+\section{Contexte}
+% TODO : pour la sécurité coopérative, les véhicules doivent s'annoncer
+% mutuellement (CAM) et s'alerter (DENM) — normes ETSI vues au chapitre 2.
+
+\section{Problématique}
+% TODO : implémenter une communication V2V conforme ETSI sur du matériel
+% standard (WiFi, sans carte 802.11p dédiée), intégrée à ROS 2, et la
+% démontrer entre deux véhicules réels.
+
+\section{Mission 1 : Mise en \oe uvre de la pile Vanetza embarquée}
+\objectif
+\methodes
+% TODO : choix de Vanetza (comparaison avec les alternatives), compilation
+% croisée/embarquée avec backend OpenSSL, socktap sur interface WiFi.
+\resultats
+\discussion
+
+\section{Mission 2 : Émission et réception de CAM intégrées à ROS 2}
+\objectif
+\methodes
+% TODO : v2v_node — contenu des CAM, fréquence, topics /v2v/remote_vehicles,
+% /v2v/alert ; stratégies de positionnement (GPS simulé, odométrie, distance
+% lidar réelle via lidar_neighbor).
+\resultats
+% TODO : captures des CAM reçus, portée, fréquence effective.
+\discussion
+
+\section{Mission 3 : Alertes DENM déclenchées par la perception}
+\objectif
+\methodes
+% TODO : chaînage perception (chap. 6) -> DENM : détection piéton YOLO
+% (/obstacle/detections) -> émission DENM -> réaction du véhicule récepteur.
+\resultats
+% TODO : LA démo à deux véhicules : scénario, mesures, captures d'écran.
+\discussion
+
+\section{Conclusion}

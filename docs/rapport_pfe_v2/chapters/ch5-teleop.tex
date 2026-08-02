@@ -1,0 +1,249 @@
+\chapter{Téléopération de Protova2 : WiFi et 5G}
+\label{chap:teleop}
+
+\section{Contexte}
+
+Avant de rendre un véhicule autonome, il faut pouvoir le conduire à distance :
+la téléopération est à la fois un mode d'exploitation à part entière (conduite
+déportée avec retour vidéo), un outil de développement indispensable
+(cartographie manuelle pour le SLAM, essais de perception) et le mode de repli
+de sécurité lorsque l'autonomie est en défaut. Sur Protova2, le poste de
+pilotage est un PC équipé d'un volant à retour de force Logitech G29 ; le
+véhicule embarque la Jetson Orin Nano, qui pilote les actionneurs via le
+microcontrôleur Pico et renvoie le flux de sa caméra.
+
+J'ai mis en œuvre et comparé deux liaisons radio pour cette téléopération : le
+\textbf{WiFi} du laboratoire, puis un \textbf{réseau 5G privé}, représentatif
+des déploiements industriels visés pour les véhicules connectés.
+
+\section{Problématique}
+
+La téléopération est une \emph{boucle} : l'opérateur perçoit la scène à
+travers la vidéo, agit sur le volant, et sa commande traverse le réseau avant
+d'atteindre les roues. Ce que voit l'opérateur est donc toujours \emph{le
+passé} du véhicule, et sa commande arrive toujours \emph{en retard} sur ce
+qu'il a vu. La qualité de conduite dépend ainsi de trois grandeurs : la
+\textbf{latence} (le retard de la boucle), le \textbf{débit} (la capacité à
+transporter la vidéo) et la \textbf{cadence d'images} (la fluidité du retour
+visuel). L'un des enjeux du chapitre est précisément de déterminer laquelle de
+ces grandeurs est réellement dimensionnante.
+
+À cette problématique de performance s'ajoute une problématique
+d'intégration : le middleware de ROS~2 (DDS) repose sur la découverte
+\emph{multicast}, qui fonctionne nativement sur un réseau local WiFi mais
+\textbf{ne traverse pas un réseau cellulaire}. La liaison 5G impose donc une
+architecture de transport différente de celle du WiFi.
+
+\section{Architecture logicielle de commande}
+
+La chaîne de commande est identique quel que soit le support radio ; seul le
+transport change. Côté PC, \texttt{joy\_node} lit le volant et publie
+\texttt{/joy} ; côté véhicule, \texttt{g29\_teleop} convertit ces axes en
+consigne de conduite (\texttt{/cmd\_vel\_G29}), un multiplexeur
+(\texttt{twist\_mux}) arbitre entre les sources de commande par priorité ---
+la téléopération, la navigation autonome et le freinage d'urgence (priorité
+maximale, chapitre~\ref{chap:perception}) --- et le nœud série \texttt{TX}
+transmet la consigne retenue au Pico, qui commande le servomoteur de direction
+et le variateur de traction. En sens inverse, la caméra Orbbec publie son flux
+couleur compressé JPEG, visualisé sur le PC. Chaque entrée du multiplexeur est
+assortie d'un \emph{timeout} : une source qui cesse d'émettre perd la main,
+ce qui garantit qu'une coupure réseau conduit à l'arrêt et non à la poursuite
+de la dernière commande reçue.
+
+\begin{figure}[ht]
+  \centering
+  \begin{tikzpicture}[x=1mm, y=1mm,
+      boite/.style={draw=altenink, fill=altenink!8, rounded corners=2pt,
+                    minimum height=8mm, minimum width=22mm, align=center, font=\small},
+      lien/.style={-{Stealth[length=2.5mm]}, thick, color=black!55},
+      etiq/.style={font=\tiny\ttfamily, color=black!55}]
+    \node[boite] (joy)  at (0,0)    {volant G29\\+ \texttt{joy\_node} (PC)};
+    \node[boite] (g29)  at (40,0)   {\texttt{g29\_teleop}};
+    \node[boite] (mux)  at (76,0)   {\texttt{twist\_mux}\\(priorités)};
+    \node[boite] (tx)   at (110,0)  {\texttt{TX} série};
+    \node[boite] (pico) at (141,0)  {Pico\\servo + ESC};
+    \node[boite] (cam)  at (76,-22) {caméra Orbbec\\(JPEG 720p)};
+    \node[boite] (pcv)  at (20,-22) {visualisation\\PC};
+    \draw[lien] (joy.east)  -- node[etiq, above]{/joy \ (réseau)} (g29.west);
+    \draw[lien] (g29.east)  -- node[etiq, above]{/cmd\_vel\_G29} (mux.west);
+    \draw[lien] (mux.east)  -- node[etiq, above]{/cmd\_vel} (tx.west);
+    \draw[lien] (tx.east)   -- node[etiq, above]{série} (pico.west);
+    \draw[lien] (cam.west)  -- node[etiq, above]{images \ (réseau)} (pcv.east);
+  \end{tikzpicture}
+  \caption{Chaîne de téléopération : les commandes descendent du PC vers le
+  véhicule, la vidéo remonte. Les liens marqués « réseau » traversent le WiFi
+  ou la 5G selon la configuration.}
+  \label{fig:chaine-teleop}
+\end{figure}
+
+\section{Mission 1 : Téléopération WiFi (FastDDS)}
+
+\objectif
+Conduire Protova2 au volant G29 à travers le WiFi du laboratoire, avec retour
+vidéo temps réel, en utilisant le transport natif de ROS~2.
+
+\methodes
+Sur un réseau local, le DDS natif de ROS~2 (FastDDS) suffit : les deux
+machines partagent le même domaine (\texttt{ROS\_DOMAIN\_ID=125}) et la
+découverte multicast fait le reste, sans configuration supplémentaire. J'ai
+encapsulé le lancement dans des scripts symétriques
+(\texttt{launch\_pc\_wifi.sh} côté poste, \texttt{launch\_car\_wifi.sh} côté
+véhicule) qui fixent l'environnement, nettoient les instances précédentes et
+démarrent les nœuds dans l'ordre. Un point de vigilance : les flux d'images
+doivent être publiés et souscrits en QoS \emph{best-effort} --- en mode
+\emph{reliable}, les retransmissions DDS s'accumulent sur un lien radio et le
+flux se fige.
+
+\resultats
+La conduite au volant fonctionne avec un retour vidéo fluide. La
+caractérisation du lien (protocole détaillé en
+section~\ref{sec:campagne-mesures}) donne : latence moyenne de \textbf{68~ms}
+mais très irrégulière (pointes à 237~ms), débit d'environ \textbf{185~Mbps}
+dans les deux sens, et cadence vidéo de \textbf{30~images/s} --- la pleine
+cadence de la caméra.
+
+\discussion
+Le débit WiFi est très confortable, mais la latence présente une particularité
+contre-intuitive que mes mesures ont mise en évidence : elle est \emph{pire à
+vide qu'en charge} (84~ms au repos contre 59~ms sous trafic soutenu). Il
+s'agit de l'économie d'énergie de la radio WiFi : entre deux paquets, elle
+s'endort, et son réveil coûte 100 à 300~ms. Ce comportement, sans conséquence
+pour de la bureautique, est pénalisant pour une boucle de pilotage, où les
+commandes sont justement de petits paquets épars.
+
+\section{Mission 2 : Téléopération 5G (Zenoh)}
+
+\objectif
+Reproduire la téléopération complète à travers un réseau 5G privé, en
+remplaçant le transport DDS, inopérant sur un lien cellulaire.
+
+\methodes
+Chaque machine est équipée d'un modem 5G Quectel (RM520N côté PC, RM530N côté
+véhicule). Le multicast étant impossible sur ce lien, j'ai remplacé le
+transport par \textbf{Zenoh} (\texttt{rmw\_zenoh\_cpp}) en architecture
+\emph{hub-and-spoke} : un routeur Zenoh sur le PC écoute sur le port 7447 ; le
+routeur du véhicule ouvre une connexion TCP vers lui à travers la 5G ; et les
+nœuds ROS~2 de chaque machine se connectent en clients à leur routeur local.
+Deux subtilités de configuration méritent d'être notées : \texttt{rmw\_zenoh}
+ignore la variable \texttt{ZENOH\_CONFIG} et exige
+\texttt{ZENOH\_ROUTER\_CONFIG\_URI} / \texttt{ZENOH\_SESSION\_CONFIG\_URI} ;
+et les sessions des nœuds ne se rattachent pas à un routeur redémarré, ce qui
+impose un ordre de démarrage strict.
+
+\resultats
+La chaîne complète fonctionne à travers la 5G : appairage des routeurs vérifié
+(session TCP établie sur le port 7447 à travers le lien radio), commandes du
+volant reçues par le véhicule, vidéo remontée au poste. Les performances
+mesurées figurent en section~\ref{sec:campagne-mesures}.
+
+\discussion
+Le débogage le plus instructif a concerné l'\textbf{adressage IP}. Les
+symptômes : le lien 5G semblait mort --- \texttt{ping 172.16.48.7} répondait
+\emph{« Do you want to ping broadcast? »} --- alors que la radio était
+parfaitement fonctionnelle. Le diagnostic : le modem attribue par DHCP une
+adresse en \texttt{/30}, un sous-réseau de quatre adresses seulement, dans
+lequel \texttt{.7} --- précisément l'adresse du poste de pilotage --- est
+l'\emph{adresse de diffusion} : le noyau refuse alors tout trafic unicast vers
+le PC. La correction consiste à élargir le masque en \texttt{/28}
+(\texttt{.7} redevient une adresse d'hôte ordinaire) et à purger
+systématiquement la \texttt{/30} que chaque renouvellement de bail DHCP
+réintroduit.
+
+Plus généralement, aucune des difficultés rencontrées n'incombait au protocole
+Zenoh lui-même : toutes relevaient de l'\emph{intégration système} ---
+installation, variables d'environnement, adressage, ordonnancement du
+démarrage, et jusqu'à ce piège d'exploitation : un \texttt{pkill}
+lancé à travers SSH avec le nom d'un nœud en argument peut tuer sa propre
+session, le motif se retrouvant dans la ligne de commande du shell distant.
+La méthode qui a permis d'en venir à bout est la vérification \emph{maillon
+par maillon} : interface $\rightarrow$ adresse IP $\rightarrow$ \texttt{ping}
+$\rightarrow$ session TCP 7447 $\rightarrow$ graphe ROS. Enfin, pour rendre
+l'ensemble robuste aux aléas, j'ai confié la pile du véhicule à un service
+\textbf{systemd} (\texttt{car5g.service}) : elle démarre au boot, se relance
+seule en cas d'échec et ne dépend plus d'aucun terminal ouvert.
+
+\section{Campagne de mesures : WiFi vs 5G}
+\label{sec:campagne-mesures}
+
+\objectif
+Comparer objectivement les deux liaisons sur les trois grandeurs de la
+téléopération --- latence, débit, cadence vidéo --- avec des outils
+reproductibles.
+
+\methodes
+J'ai développé trois scripts de mesure autonomes, chacun produisant sa courbe
+et ses données brutes : \texttt{mesure\_latence.py} (RTT de chaque paquet
+\texttt{ping}, 5~Hz), \texttt{mesure\_debit.py} (débit utile transféré chaque
+seconde par \texttt{iperf3}, dans les deux sens) et \texttt{mesure\_fps.py}
+(comptage, seconde par seconde, des images reçues au poste de pilotage). Les
+mêmes scripts servent pour les deux réseaux --- seule change la cible --- ce
+qui garantit une comparaison à protocole identique. Ils complètent les
+tableaux de bord de supervision en direct présentés au
+chapitre~\ref{chap:dashboard}.
+
+\resultats
+La figure~\ref{fig:comparaison-wifi-5g} superpose les mesures ; le
+tableau~\ref{tab:wifi-5g} les résume.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=\textwidth]{comparaison_wifi_5g.png}
+  \caption{Comparaison WiFi / 5G sur le lien PC $\leftrightarrow$ véhicule :
+  latence (gauche), débit dans les deux sens (centre), cadence vidéo
+  (droite).}
+  \label{fig:comparaison-wifi-5g}
+\end{figure}
+
+\begin{table}[ht]
+  \centering
+  \begin{tabular}{lccc}
+    \hline
+    \textbf{Grandeur} & \textbf{WiFi} & \textbf{5G} & \textbf{Écart} \\
+    \hline
+    Latence moyenne (gigue)          & 68 ms (pointes 237)  & \textbf{26 ms} (17--37) & 5G $\times$2,6 \\
+    Débit montant PC$\to$véhicule    & \textbf{186 Mbps}    & 69 Mbps   & WiFi $\times$2,7 \\
+    Débit descendant véhicule$\to$PC & \textbf{183 Mbps}    & 77 Mbps   & WiFi $\times$2,4 \\
+    Cadence vidéo 720p               & 30,5 im/s            & 30,5 im/s & égalité \\
+    \hline
+  \end{tabular}
+  \caption{Synthèse des mesures WiFi / 5G (moyennes des campagnes).}
+  \label{tab:wifi-5g}
+\end{table}
+
+\discussion
+Ces résultats illustrent une distinction essentielle : le débit et la cadence
+d'images sont des critères \emph{à seuil}, tandis que la latence est le
+\emph{facteur de mérite}. Le besoin réel du système est modeste --- environ
+18~Mbps pour la vidéo 720p, moins de 0,1~Mbps pour les commandes --- et les
+deux liens le dépassent largement : la vidéo passe d'ailleurs à pleine cadence
+(30~im/s) sur les deux. L'avantage de débit du WiFi ne se traduit donc par
+aucun bénéfice perceptible. La latence, en revanche, intervient dans la boucle
+perception--action à chaque instant et ne peut être compensée par aucun autre
+paramètre : à 1~m/s, les 68~ms moyens du WiFi (et surtout ses pointes à
+237~ms) représentent 7 à 24~cm parcourus « à l'insu » de l'opérateur, contre
+moins de 3~cm --- et de façon \emph{prévisible} --- en 5G. Pour la
+téléopération temps réel, la 5G est donc le lien le plus adapté, par sa
+latence faible et \emph{stable} bien plus que par toute autre caractéristique.
+
+Une perspective naturelle est la \textbf{mobilité} : le \emph{handover}
+(changement de point d'accès en mouvement) est natif et quasi transparent en
+5G --- c'est l'un de ses atouts fondateurs pour le véhicule connecté ---
+tandis que le \emph{roaming} WiFi, décidé par le client, provoque des coupures
+de quelques centaines de millisecondes à plusieurs secondes. Le bâtiment du
+laboratoire, couvert par une vingtaine de bornes WiFi, se prête à une mesure
+comparative de ces interruptions, qui constituerait un prolongement direct de
+cette campagne.
+
+\section{Conclusion}
+
+La téléopération de Protova2 fonctionne de bout en bout sur les deux liaisons,
+avec une chaîne de commande commune et deux transports adaptés à chaque
+support (FastDDS en WiFi, Zenoh en hub-and-spoke sur 5G). La campagne de
+mesures, menée avec des outils développés pour être reproductibles, dégage la
+conclusion structurante du chapitre : à débit suffisant --- ce qui est le cas
+des deux liens --- c'est la latence, et sa stabilité, qui gouverne la qualité
+de la téléopération ; la 5G y est nettement supérieure (26~ms stables contre
+68~ms irréguliers). Ce résultat, ainsi que la robustesse apportée par la
+supervision systemd de la pile embarquée, préparent le terrain du
+chapitre~\ref{chap:v2v}, où le lien inter-véhicules transporte non plus des
+commandes de conduite mais des messages de sécurité coopérative.

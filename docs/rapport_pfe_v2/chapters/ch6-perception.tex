@@ -1,0 +1,47 @@
+\chapter{Perception et navigation autonome}
+\label{chap:perception}
+
+\section{Contexte}
+% TODO : après la téléopération, rendre le véhicule capable de « voir » et de
+% décider seul — et fournir la perception qui alimentera le V2V (chap. 7).
+
+\section{Problématique}
+% TODO : percevoir (lidar + caméra), se localiser, naviguer et freiner seul,
+% avec les ressources limitées d'un calculateur embarqué.
+
+\section{Mission 1 : Cartographie et localisation (SLAM)}
+\objectif
+\methodes
+% TODO : RPLIDAR -> slam_toolbox, réglages, cartes obtenues.
+\resultats
+\discussion
+
+\section{Mission 2 : Navigation réactive follow the gap et avancement Nav2}
+\objectif
+\methodes
+% TODO : principe follow_the_gap sur le scan lidar, package navigation,
+% intégration twist_mux (priorités avec la téléop) ; état d'avancement Nav2.
+\resultats
+\discussion
+
+\section{Mission 3 : Détection de piétons par vision --- YOLO embarqué sur GPU}
+\objectif
+\methodes
+% TODO : portage de l'inférence sur le GPU de la Jetson : JetPack/CUDA,
+% installation de torch spécifique Jetson, numpy compatible — le chemin de
+% croix technique mérite d'être raconté.
+\resultats
+% TODO : LE tableau avant/après : 344 ms/image (CPU) -> 30 ms/image (GPU),
+% soit un facteur ~11 — ton meilleur résultat chiffré du chapitre.
+\discussion
+
+\section{Mission 4 : Freinage d'urgence automatique (AEB) par fusion lidar + caméra}
+\objectif
+\methodes
+% TODO : fusion aeb_fusion (offset 180° du lidar, seuils dynamiques selon la
+% vitesse, frein actif calibré, timeout twist_mux), « boîte noire » de debug.
+\resultats
+% TODO : scénarios d'essai (obstacle statique, piéton), distances d'arrêt.
+\discussion
+
+\section{Conclusion}

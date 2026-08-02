@@ -1,0 +1,28 @@
+\chapter{Supervision temps réel : dashboard de télémétrie}
+\label{chap:dashboard}
+
+\section{Contexte}
+% TODO : besoin d'un poste de supervision unique : état du véhicule, carte,
+% lidar, latence réseau, messages V2V — visibles dans un simple navigateur.
+
+\section{Problématique}
+% TODO : exposer les données ROS 2 du véhicule à une interface web, en temps
+% réel, à travers WiFi comme 5G, sans saturer le lien.
+
+\section{Mission : Conception et développement du dashboard web}
+\objectif
+% TODO : spécifications des panneaux (carte SLAM, lidar, vitesse, latence
+% WiFi/5G superposées, feed CAM/DENM).
+\methodes
+% TODO : architecture rosbridge (WebSocket :9090) + React/TypeScript +
+% roslib ; nœud telemetry_bridge côté Jetson (ping, température CPU, mode
+% wifi/5g) ; throttling des topics pour préserver la bande passante ;
+% piège du ROS_DOMAIN_ID raconté en discussion.
+\resultats
+% TODO : captures d'écran du dashboard en fonctionnement (lidar live,
+% courbes WiFi vs 5G superposées) ; usage pendant les démos.
+\discussion
+% TODO : choix React vs Foxglove justifié ; limites et évolutions (caméra,
+% TF map->odom pour la pose exacte).
+
+\section{Conclusion}

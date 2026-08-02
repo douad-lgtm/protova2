@@ -1,0 +1,43 @@
+\chapter{Fiabilisation de la plateforme Protova1 : mécanique et odométrie}
+
+\section{Contexte}
+% TODO : Protova1, première génération : base mécanique vieillissante,
+% odométrie inexploitable à cause des rebonds de l'encodeur.
+
+\section{Problématique}
+% TODO : comment redonner à Protova1 une base saine (mécanique + mesure de
+% déplacement fiable) pour en faire à terme un second véhicule téléopérable ?
+
+\section{Mission 1 : Conception et impression 3D de la nouvelle base mécanique}
+\objectif
+% TODO : remplacer la base existante ; contraintes d'intégration (fixations
+% Jetson/lidar/batterie, rigidité, masse).
+\methodes
+% TODO : CAO (mêmes réflexes que tes conceptions FORVIA : cahier des charges,
+% itérations de solutions, choix justifié), impression 3D : matériau,
+% orientation, tolérances, assemblage.
+\resultats
+% TODO : photos avant/après, masse, qualité d'assemblage.
+\discussion
+% TODO : itérations ratées/réussies, leçons (tolérances d'impression...).
+
+\section{Mission 2 : Chaîne odométrique --- filtrage de l'encodeur}
+\objectif
+% TODO : signaux du KY-040 inexploitables (rebonds) -> compter proprement les
+% ticks pour l'odométrie.
+\methodes
+% TODO : analyse du signal brut, conception du conditionnement : filtre RC +
+% trigger de Schmitt 74HC14, schéma électronique, dimensionnement justifié
+% (choix R, C, seuils d'hystérésis), banc de test Arduino en quadrature.
+\resultats
+% TODO : LE chiffre : 1 tour = 80 ticks, stable et reproductible — mets
+% l'oscillogramme avant/après filtrage, c'est très parlant.
+\discussion
+% TODO : limites (résolution, vitesse max), alternative logicielle écartée.
+
+\section{Vers la téléopération de Protova1}
+% TODO : perspective — ce qui reste à faire pour rendre Protova1 téléopérable
+% comme Protova2 (annonce des perspectives de la conclusion générale).
+
+\section{Conclusion}
+% TODO : 4-5 lignes de bilan du chapitre.

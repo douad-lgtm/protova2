@@ -1,0 +1,144 @@
+% ============================================================
+% RAPPORT DE STAGE PFE (5A) — Douae SEBTI — INSA HdF / ALTEN
+% Template : memoir (adapté du modèle de thèse UoB / V. Brena)
+% Charte : bleu marine ALTEN (cohérent avec alten.fr)
+% Compiler : pdflatex main.tex  (x2 pour tables et renvois)
+% ============================================================
+\documentclass[a4paper,11pt,leqno,openbib,oneside]{memoir}
+
+% ---------- mise en page (héritée du template) ----------
+\settrimmedsize{297mm}{210mm}{*}
+\setlength{\trimtop}{0pt}
+\setlength{\trimedge}{\stockwidth}
+\addtolength{\trimedge}{-\paperwidth}
+\settypeblocksize{634pt}{448.13pt}{*}
+\setulmargins{4cm}{*}{*}
+\setlrmargins{*}{*}{1.5}
+\setmarginnotes{17pt}{51pt}{\onelineskip}
+\setheadfoot{\onelineskip}{2\onelineskip}
+\setheaderspaces{*}{2\onelineskip}{*}
+\checkandfixthelayout
+\frenchspacing
+
+% ---------- encodage / langue / police ----------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{fouriernc}            % police du template (New Century Schoolbook)
+
+\OnehalfSpacing
+\setsecnumdepth{subsection}
+\maxsecnumdepth{subsubsection}
+
+% ---------- couleurs : charte ALTEN (alten.fr = bleu marine profond) ----------
+\usepackage{xcolor}
+\definecolor{altenink}{RGB}{20,45,70}         % bleu encre ALTEN (titres)
+\definecolor{altenturquoise}{RGB}{0,150,118}  % accent secondaire
+
+% ---------- style de chapitre du template, recoloré ALTEN ----------
+\usepackage{calc,soul}
+\makeatletter
+\newlength\dlf@normtxtw
+\setlength\dlf@normtxtw{\textwidth}
+\newsavebox{\feline@chapter}
+\newcommand\feline@chapter@marker[1][4cm]{%
+  \sbox\feline@chapter{%
+    \resizebox{!}{#1}{\fboxsep=1pt%
+      \colorbox{altenink}{\color{white}\thechapter}%
+    }}%
+    \rotatebox{90}{%
+      \resizebox{%
+        \heightof{\usebox{\feline@chapter}}+\depthof{\usebox{\feline@chapter}}}%
+      {!}{\scshape\so\@chapapp}}\quad%
+    \raisebox{\depthof{\usebox{\feline@chapter}}}{\usebox{\feline@chapter}}%
+}
+\newcommand\feline@chm[1][4cm]{%
+  \sbox\feline@chapter{\feline@chapter@marker[#1]}%
+  \makebox[0pt][c]{%
+    \makebox[1cm][r]{\usebox\feline@chapter}%
+  }}
+\makechapterstyle{daleifmodif}{
+  \renewcommand\chapnamefont{\normalfont\Large\scshape\raggedleft\so}
+  \renewcommand\chaptitlefont{\normalfont\Large\bfseries\scshape}
+  \renewcommand\chapternamenum{} \renewcommand\printchaptername{}
+  \renewcommand\printchapternum{\null\hfill\feline@chm[2.5cm]\par}
+  \renewcommand\afterchapternum{\par\vskip\midchapskip}
+  \renewcommand\printchaptertitle[1]{\color{altenink}\chaptitlefont\raggedleft ##1\par}
+}
+\makeatother
+\chapterstyle{daleifmodif}
+
+% sections en bleu ALTEN
+\setsecheadstyle{\Large\bfseries\color{altenink}}
+\setsubsecheadstyle{\large\bfseries\color{altenink}}
+
+% ---------- en-têtes / pieds de page du template ----------
+\makepagestyle{myvf}
+\makeoddfoot{myvf}{}{\thepage}{}
+\makeevenfoot{myvf}{}{\thepage}{}
+\makeheadrule{myvf}{\textwidth}{\normalrulethickness}
+\makeevenhead{myvf}{\small\textsc{\leftmark}}{}{}
+\makeoddhead{myvf}{}{}{\small\textsc{\rightmark}}
+\pagestyle{myvf}
+\newcommand{\clearemptydoublepage}{\newpage{\thispagestyle{empty}\clearpage}}
+
+% ---------- paquets utiles ----------
+\usepackage{graphicx}
+\graphicspath{{images/}{logos/}}
+\usepackage{longtable,rotating,colortbl,array,float,verbatim,enumerate,microtype}
+\usepackage{amsfonts,amsmath,amssymb}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes,backgrounds}
+\usepackage[colorlinks=true,allcolors=altenink]{hyperref}
+\usepackage{memhfixc}
+
+% ---------- style « mission » (hérité du rapport 4A) ----------
+% chaque mission suit : Objectif -> Méthodes -> Résultats -> Discussion
+\newcommand{\objectif}{\subsubsection*{a- Objectif}}
+\newcommand{\methodes}{\subsubsection*{b- Méthodes utilisées}}
+\newcommand{\resultats}{\subsubsection*{c- Résultats obtenus}}
+\newcommand{\discussion}{\subsubsection*{d- Discussion}}
+\newcommand{\ieme}{\ieme@nothing}
+\renewcommand{\ieme}{\textsuperscript{ème}}
+
+% ---------- métadonnées PDF ----------
+\hypersetup{
+  pdfauthor={Douae Sebti},
+  pdftitle={Téléopération 5G, communication V2V et supervision d'une plateforme
+            de véhicule autonome à échelle réduite sous ROS2},
+}
+
+\begin{document}
+
+% ================= PAGE DE GARDE =================
+\include{frontmatter/title}
+
+% ================= LIMINAIRES =================
+\frontmatter
+\include{chapters/avantpropos}      % non-plagiat + remerciements
+\clearpage
+\tableofcontents*
+\clearpage
+\listoffigures
+\include{chapters/glossaire}
+
+% ================= CORPS =================
+\mainmatter
+\include{chapters/introduction}
+\include{chapters/ch1-entreprise}   % ALTEN, Labs, Sèvres, ProtoVA
+\include{chapters/ch2-etat-art}     % État de l'art
+\include{chapters/ch3-contexte}     % Contexte, problématique, démarche
+\include{chapters/ch4-protova1}     % Mécanique + odométrie Protova1
+\include{chapters/ch5-teleop}       % Téléopération WiFi / 5G — RÉDIGÉ
+\include{chapters/ch6-perception}   % SLAM, YOLO, AEB
+\include{chapters/ch7-v2v}          % Vanetza CAM / DENM (chapitre vedette)
+\include{chapters/ch8-dashboard}    % Dashboard de supervision
+\include{chapters/ch9-bilan}        % Bilan général du projet
+\include{chapters/conclusion}
+
+% ================= BIBLIO + ANNEXES =================
+\include{chapters/bibliographie}
+\appendix
+\include{chapters/annexes}
+
+\end{document}
