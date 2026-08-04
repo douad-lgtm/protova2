@@ -27,23 +27,18 @@ const int FULL_FWD = 2080;
 const int FULL_BWD = 720;
 
 // ================== ENCODEUR KY-040 ==================
-// FIX 1 : une seule variable tickCount (suppression du doublon tick_count)
+// Comme ProtoVA2 : front MONTANT uniquement -> 20 ticks/tour
 volatile int tickCount = 0;
-volatile int lastCLK   = HIGH;
 
 // Filtre passe-bas
 float filteredTicks = 0.0f;
 const float ALPHA   = 0.3f;  // 0 = très filtré, 1 = pas filtré
 
 void encoderISR() {
-    int currentCLK = digitalRead(PIN_CLK);
-    if (currentCLK != lastCLK && currentCLK == LOW) {
-        if (digitalRead(PIN_DT) != currentCLK)
-            tickCount++;   // sens avant
-        else
-            tickCount--;   // sens arrière
-    }
-    lastCLK = currentCLK;
+    if (digitalRead(PIN_DT))
+        tickCount++;   // sens 1
+    else
+        tickCount--;   // sens opposé
 }
 
 // ================= IMU (désactivé) =================
@@ -216,7 +211,7 @@ void setup() {
     // Encodeur KY-040
     pinMode(PIN_CLK, INPUT_PULLUP);
     pinMode(PIN_DT,  INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(PIN_CLK), encoderISR, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(PIN_CLK), encoderISR, RISING);  // comme ProtoVA2
 
     // Queue + Tasks FreeRTOS
     controlQueue = xQueueCreate(1, sizeof(ControlMsg));
