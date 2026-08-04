@@ -167,9 +167,16 @@ void TaskIMU(void *) {
 // ================= SETUP =================
 // FIX 3 : un seul setup() — le setup() "exemple" du bas a été supprimé
 void setup() {
+    // ESC + servo EN PREMIER : le neutre sort des la mise sous tension,
+    // l'ESC peut donc s'armer sans qu'on ait a debrancher/rebrancher.
+    // (avant : while(!Serial) bloquait tout tant que le port n'etait pas ouvert)
+    servo.attach(SERVO_PIN);
+    esc.attach(ESC_PIN, FULL_BWD, FULL_FWD);
+    servo.write(SERVO_CENTER);
+    esc.writeMicroseconds(NEUTRAL);
+
     Serial.begin(115200);
-    while (!Serial) delay(10);
-    delay(500);
+    delay(2000);   // l'ESC voit le neutre pendant ce temps
 
     Serial.println("=== Protova1 Boot ===");
 
@@ -202,12 +209,7 @@ void setup() {
     //     Serial.println("IMU ERREUR — verifie branchement SDA/SCL");
     // }
 
-    // Servo + ESC
-    servo.attach(SERVO_PIN);
-    esc.attach(ESC_PIN, FULL_BWD, FULL_FWD);
-    servo.write(SERVO_CENTER);
-    esc.writeMicroseconds(NEUTRAL);
-    delay(2000);
+    // (servo + ESC deja attaches en debut de setup)
 
     // Encodeur KY-040 — x2 : interruption sur les deux fronts de CLK seulement
     pinMode(PIN_CLK, INPUT_PULLUP);
