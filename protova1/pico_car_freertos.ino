@@ -27,18 +27,23 @@ const int FULL_FWD = 2080;
 const int FULL_BWD = 720;
 
 // ================== ENCODEUR KY-040 ==================
-// Comme ProtoVA2 : front MONTANT uniquement -> 20 ticks/tour
+// Quadrature x4 (banc juin 2026, valide : 1 tour = 80 ticks)
+// Table de decodage sur les 4 fronts de CLK et DT
 volatile int tickCount = 0;
+volatile uint8_t lastState = 0;
+const int8_t QDEC[16] = { 0,-1, 1, 0,
+                          1, 0, 0,-1,
+                         -1, 0, 0, 1,
+                          0, 1,-1, 0 };
 
 // Filtre passe-bas
 float filteredTicks = 0.0f;
 const float ALPHA   = 0.3f;  // 0 = très filtré, 1 = pas filtré
 
 void encoderISR() {
-    if (digitalRead(PIN_DT))
-        tickCount++;   // sens 1
-    else
-        tickCount--;   // sens opposé
+    uint8_t s = (digitalRead(PIN_CLK) << 1) | digitalRead(PIN_DT);
+    tickCount += QDEC[(lastState << 2) | s];
+    lastState = s;
 }
 
 // ================= IMU (désactivé) =================
@@ -208,10 +213,12 @@ void setup() {
     esc.writeMicroseconds(NEUTRAL);
     delay(2000);
 
-    // Encodeur KY-040
+    // Encodeur KY-040 — quadrature x4 : interruption sur les DEUX broches
     pinMode(PIN_CLK, INPUT_PULLUP);
     pinMode(PIN_DT,  INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(PIN_CLK), encoderISR, RISING);  // comme ProtoVA2
+    lastState = (digitalRead(PIN_CLK) << 1) | digitalRead(PIN_DT);
+    attachInterrupt(digitalPinToInterrupt(PIN_CLK), encoderISR, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(PIN_DT),  encoderISR, CHANGE);
 
     // Queue + Tasks FreeRTOS
     controlQueue = xQueueCreate(1, sizeof(ControlMsg));

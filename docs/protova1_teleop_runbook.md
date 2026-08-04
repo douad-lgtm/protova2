@@ -11,8 +11,8 @@
 | **Bug neutre ESC corrigé** | `NEUTRAL 1400 → 1500 µs` (1400 = marche arrière rapide sur cet ESC !) |
 | Servo | ✅ validé (balayage 28↔138, centre 83) |
 | Moteur | ✅ tourne (penser à armer l'ESC : off → 3 s → on, avec le Pico branché) |
-| **Encodeur** | ✅ compte à la main (KY-040, filtre RC + 74HC14) — **2026-08-04 : ISR alignée sur ProtoVA2** (front montant uniquement → **20 ticks/tour**, 2× moins d'interruptions) |
-| Paramètres ROS | `ticks_per_rev = 20` dans TX.py et ackermann_odom.py (RX.py = doublon, non utilisé) |
+| **Encodeur** | ✅ **80 ticks/tour** (KY-040 20 PPR ×4, filtre RC + 74HC14) — 2026-08-04 : ISR quadrature ×4 propre (table de décodage, interruptions sur CLK **et** DT), conforme au banc de juin |
+| Paramètres ROS | `ticks_per_rev = 80` dans TX.py et ackermann_odom.py (RX.py = doublon, non utilisé) |
 | twist_mux | installé (`ros-foxy-twist-mux`), config priorités : aeb 255 > ps4 60 > g29 30 |
 | **Pont /joy UDP** | le hotspot iPhone **bloque les données DDS** inter-machines (découverte OK, données NON) → pont UDP unicast maison : `joy_udp_bridge_tx.py` (PC) → `joy_udp_bridge_rx.py` (Jetson, port 9001) |
 | Service systemd | `p1teleop.service` créé (pile complète, Restart on-failure) — actuellement **désactivé** (mode terminaux préféré) |
