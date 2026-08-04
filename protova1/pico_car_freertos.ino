@@ -27,23 +27,19 @@ const int FULL_FWD = 2080;
 const int FULL_BWD = 720;
 
 // ================== ENCODEUR KY-040 ==================
-// Quadrature x4 (banc juin 2026, valide : 1 tour = 80 ticks)
-// Table de decodage sur les 4 fronts de CLK et DT
+// Decodage x2 : les DEUX fronts de CLK (montant + descendant)
+// -> 20 PPR x 2 = 40 ticks/tour
 volatile int tickCount = 0;
-volatile uint8_t lastState = 0;
-const int8_t QDEC[16] = { 0,-1, 1, 0,
-                          1, 0, 0,-1,
-                         -1, 0, 0, 1,
-                          0, 1,-1, 0 };
 
 // Filtre passe-bas
 float filteredTicks = 0.0f;
 const float ALPHA   = 0.3f;  // 0 = très filtré, 1 = pas filtré
 
 void encoderISR() {
-    uint8_t s = (digitalRead(PIN_CLK) << 1) | digitalRead(PIN_DT);
-    tickCount += QDEC[(lastState << 2) | s];
-    lastState = s;
+    if (digitalRead(PIN_CLK) != digitalRead(PIN_DT))
+        tickCount++;   // sens avant
+    else
+        tickCount--;   // sens arrière
 }
 
 // ================= IMU (désactivé) =================
@@ -213,12 +209,10 @@ void setup() {
     esc.writeMicroseconds(NEUTRAL);
     delay(2000);
 
-    // Encodeur KY-040 — quadrature x4 : interruption sur les DEUX broches
+    // Encodeur KY-040 — x2 : interruption sur les deux fronts de CLK seulement
     pinMode(PIN_CLK, INPUT_PULLUP);
     pinMode(PIN_DT,  INPUT_PULLUP);
-    lastState = (digitalRead(PIN_CLK) << 1) | digitalRead(PIN_DT);
     attachInterrupt(digitalPinToInterrupt(PIN_CLK), encoderISR, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(PIN_DT),  encoderISR, CHANGE);
 
     // Queue + Tasks FreeRTOS
     controlQueue = xQueueCreate(1, sizeof(ControlMsg));
