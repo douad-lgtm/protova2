@@ -1,0 +1,187 @@
+\documentclass[11pt,a4paper]{article}
+
+% ===== Encodage / langue / police =====
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+
+% ===== Mise en page =====
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{insared}{RGB}{226,0,26}
+
+% Titres en noir, filet rouge INSA sous les sections
+\titleformat{\section}
+  {\Large\bfseries\color{black}}{\thesection}{0.8em}{}
+  [{\color{insared}\titlerule[1.2pt]}]
+\titleformat{\subsection}
+  {\large\bfseries\color{black}}{\thesubsection}{0.8em}{}
+
+% En-tête / pied de page
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Rapport hebdomadaire — ProtoVA1}
+\fancyhead[R]{\small Douae SEBTI — PFE ALTEN Labs}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+
+% ================= EN-TÊTE =================
+\noindent
+\begin{minipage}[c]{0.45\textwidth}
+  \includegraphics[height=1.3cm]{logo_insa.png}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.45\textwidth}
+  \raggedleft
+  \includegraphics[height=1.8cm]{logo_alten.png}
+\end{minipage}
+
+\vspace{1.2em}
+\begin{center}
+  {\LARGE\bfseries Rapport hebdomadaire}\\[0.5em]
+  {\Large ProtoVA1 : remise en service et téléopération}\\[0.8em]
+  {\color{insared}\rule{0.6\textwidth}{1.2pt}}\\[0.8em]
+  {\large Douae \textsc{Sebti} — Projet de fin d'études, ALTEN Labs (ProtoVA)}\\[0.3em]
+  {\large Semaine du 3 au 6 août 2026}
+\end{center}
+\vspace{1em}
+
+% ================= OBJECTIF =================
+\section{Objectif de la semaine}
+
+Rendre \textbf{ProtoVA1} (Jetson Nano, ROS~2 Foxy) de nouveau \textbf{pleinement
+téléopérable} au volant Logitech G29 avec retour de force, en intégrant le nouvel
+encodeur et son étage de filtrage --- première étape vers la démonstration finale :
+\textbf{deux plateformes opérationnelles échangeant des messages V2V (DENM)}.
+
+\medskip
+\noindent\fbox{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{%
+  \textbf{Objectif atteint :} la voiture a roulé au sol, téléopérée au G29 avec
+  retour de force.}}
+
+% ================= ARCHITECTURE =================
+\section{Architecture mise en place}
+
+\begin{center}
+\small
+\begin{tabular}{c}
+\texttt{G29 + retour de force (PC)} \\
+$\downarrow$ \\
+\texttt{joy\_node $\rightarrow$ pont UDP /joy (développement maison)} \\
+$\downarrow$ \\
+\texttt{Jetson Nano : g29\_teleop $\rightarrow$ twist\_mux $\rightarrow$ n\oe ud TX (série USB)} \\
+$\downarrow$ \\
+\texttt{Raspberry Pi Pico (FreeRTOS) $\rightarrow$ servo de direction + ESC moteur} \\
+$\uparrow$ \\
+\texttt{TICKS encodeur (40/tour) $\rightarrow$ topic /velocity} \\
+\end{tabular}
+\end{center}
+
+% ================= TRAVAUX =================
+\section{Travaux réalisés}
+
+\subsection{Micrologiciel Raspberry Pi Pico (réécrit, compilé, flashé)}
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{FreeRTOS}, trois tâches : réception série
+        (\texttt{CTRL,angle,vitesse}), contrôle servo + ESC, encodeur
+        (\texttt{TICKS,n} à 50~Hz) ;
+  \item \textbf{recalibration du neutre ESC : $1400 \rightarrow 1500~\mu$s} ---
+        bug critique : à 1400~$\mu$s, la voiture partait en marche arrière rapide
+        sur la commande \og stop \fg{} ;
+  \item \textbf{armement automatique de l'ESC} : le signal neutre est désormais
+        émis dès la mise sous tension (auparavant, le micrologiciel attendait
+        l'ouverture du port série avant d'émettre le moindre signal, ce qui
+        obligeait à débrancher puis rebrancher l'alimentation à chaque session).
+\end{itemize}
+
+\subsection{Encodeur KY-040 et conditionnement du signal}
+\begin{itemize}[itemsep=2pt]
+  \item chaîne validée : encodeur $\rightarrow$ filtre RC $\rightarrow$ bascule de
+        Schmitt \textbf{74HC14} $\rightarrow$ Pico (élimination des rebonds
+        mécaniques) ;
+  \item étude des décodages possibles ($\times 1 = 20$, $\times 2 = 40$,
+        $\times 4 = 80$ ticks/tour) $\rightarrow$ \textbf{décodage $\times 2$
+        retenu : 40 ticks/tour} ;
+  \item paramètres d'odométrie mis en cohérence côté ROS
+        (\texttt{ticks\_per\_rev = 40} dans les n\oe uds TX et
+        \texttt{ackermann\_odom}).
+\end{itemize}
+
+\subsection{Réseau : pont UDP pour le topic \texttt{/joy}}
+\begin{itemize}[itemsep=2pt]
+  \item diagnostic : le partage de connexion utilisé \textbf{bloque les données
+        DDS} entre machines (la découverte passe, les données non) --- vérifié
+        objectivement, l'UDP brut passant dans les deux sens ;
+  \item développement d'un \textbf{pont UDP unicast} dédié : le PC envoie
+        \texttt{/joy} sur le port 9001, la Jetson le republie localement
+        $\rightarrow$ interopérabilité Humble (PC) $\leftrightarrow$ Foxy (Jetson)
+        rétablie.
+\end{itemize}
+
+\subsection{Pile logicielle Jetson}
+\begin{itemize}[itemsep=2pt]
+  \item \texttt{twist\_mux} installé et configuré (priorités : AEB 255 $>$ PS4 60
+        $>$ G29 30) --- prêt pour l'arrivée d'un freinage d'urgence coopératif ;
+  \item script de lancement unique (\texttt{launch\_teleop\_p1.sh}) + service
+        systemd \texttt{p1teleop} résilient aux coupures SSH ;
+  \item \emph{runbook} complet documenté (flash $\rightarrow$ armement
+        $\rightarrow$ lancement $\rightarrow$ conduite $\rightarrow$ diagnostic).
+\end{itemize}
+
+\subsection{Premier roulage au sol et itération de réglages}
+
+\begin{table}[ht]
+  \centering
+  \begin{tabular}{p{4.2cm}p{4.6cm}p{4.6cm}}
+    \toprule
+    \textbf{Constat} & \textbf{Cause} & \textbf{Correction} \\
+    \midrule
+    Retards à l'accélération & Consigne minimale dans la zone morte de l'ESC &
+      Minimum relevé au-dessus de la zone morte \\
+    Vitesse bridée & Pédale à fond $=$ 20~\% de puissance seulement &
+      Plage élargie à 35~\% (ajustable) \\
+    Manque de précision & Course de pédale écrasée sur une plage étroite &
+      Plage élargie $\rightarrow$ meilleure résolution \\
+    ESC à réarmer en débranchant & Micrologiciel muet avant ouverture du port série &
+      Neutre émis dès la mise sous tension \\
+    \bottomrule
+  \end{tabular}
+  \caption{Constats du premier roulage et corrections apportées.}
+\end{table}
+
+% ================= LIVRABLES =================
+\section{Livrables (dépôt GitHub)}
+\begin{itemize}[itemsep=2pt]
+  \item \texttt{protova1/pico\_car\_freertos.ino} --- micrologiciel final ;
+  \item \texttt{protova1/joy\_udp\_bridge\_tx.py} /
+        \texttt{joy\_udp\_bridge\_rx.py} --- pont \texttt{/joy} ;
+  \item \texttt{protova1/launch\_teleop\_p1.sh} --- pile complète ;
+  \item \texttt{docs/protova1\_teleop\_runbook.md} --- procédure reproductible.
+\end{itemize}
+
+% ================= SUITE =================
+\section{Prochaines étapes : ProtoVA2, puis la démonstration à deux véhicules}
+\begin{enumerate}[itemsep=2pt]
+  \item \textbf{ProtoVA2} : investigation du bug \og avance sans accélérateur \fg{}
+        (boîte noire), calibrations ;
+  \item émission d'un \textbf{DENM au freinage AEB} côté ProtoVA2 (Vanetza déjà
+        opérationnel) ;
+  \item portage V2V sur ProtoVA1 (compilation de Vanetza sur la Jetson Nano +
+        n\oe ud CAM/DENM léger) ;
+  \item \textbf{démonstration finale} : ProtoVA2 freine (AEB) $\rightarrow$ DENM
+        $\rightarrow$ ProtoVA1 réagit --- sécurité coopérative entre deux
+        véhicules réels.
+\end{enumerate}
+
+\end{document}
