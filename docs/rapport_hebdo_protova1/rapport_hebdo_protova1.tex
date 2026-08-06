@@ -29,7 +29,7 @@
 % En-tête / pied de page
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small Rapport hebdomadaire — ProtoVA1}
+\fancyhead[L]{\small Rapport hebdomadaire — ProtoVA1 \& démo 5G}
 \fancyhead[R]{\small Douae SEBTI — PFE ALTEN Labs}
 \fancyfoot[C]{\small\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
@@ -50,7 +50,7 @@
 \vspace{1.2em}
 \begin{center}
   {\LARGE\bfseries Rapport hebdomadaire}\\[0.5em]
-  {\Large ProtoVA1 : remise en service et téléopération}\\[0.8em]
+  {\Large ProtoVA1 : remise en service --- ProtoVA2 : démo 5G rétablie}\\[0.8em]
   {\color{insared}\rule{0.6\textwidth}{1.2pt}}\\[0.8em]
   {\large Douae \textsc{Sebti} — Projet de fin d'études, ALTEN Labs (ProtoVA)}\\[0.3em]
   {\large Semaine du 3 au 6 août 2026}
@@ -160,6 +160,45 @@ $\uparrow$ \\
   \caption{Constats du premier roulage et corrections apportées.}
 \end{table}
 
+% ================= PROTOVA2 5G =================
+\section{ProtoVA2 : remise en route de la démonstration de téléopération 5G}
+
+La démonstration 5G (téléopération G29 sur ROS~2 via \textbf{Zenoh}, PC hub
+$\leftrightarrow$ véhicule en 172.16.48.7/6) était inopérante depuis le
+re-flashage de la Jetson Orin. Diagnostic et remise en route complète :
+
+\subsection{Cause racine identifiée : la mémoire partagée de Zenoh}
+Les n\oe uds ROS du véhicule mouraient tous à l'initialisation
+(\texttt{Failed to create POSIX SHM provider, OS error 12}) alors que le routeur
+Zenoh, lui, survivait --- d'où l'impression trompeuse d'un lien \og cassé \fg{}.
+En cause : le paquet \texttt{rmw\_zenoh\_cpp} réinstallé après le re-flashage
+(build plus récent que celui du PC) tente d'allouer un segment de
+\textbf{mémoire partagée} (SHM) au démarrage de chaque n\oe ud et échoue,
+alors même que la mémoire disponible était suffisante (3,8~Go libres).
+\textbf{Correctif} : désactivation de la SHM dans la configuration de session
+Zenoh du véhicule (\texttt{transport: \{ shared\_memory: \{ enabled: false \} \}}
+dans \texttt{zenoh\_session\_car.json5}) --- sans perte fonctionnelle, la SHM
+n'optimisant que les échanges \emph{intra}-machine, inutile pour un lien 5G.
+
+\subsection{Remises d'aplomb annexes}
+\begin{itemize}[itemsep=2pt]
+  \item adresse fantôme /30 du DHCP purgée côté véhicule (re-passage en /28,
+        piège récurrent de cette installation) ;
+  \item route par défaut 5G supprimée côté PC (le trafic internet repassait
+        par le lien cellulaire) ;
+  \item service \texttt{car5g} réactivé au démarrage.
+\end{itemize}
+
+\subsection{Validation de bout en bout}
+Topics du véhicule visibles depuis le PC à travers la 5G ; \texttt{/joy}
+(volant) transmis PC $\rightarrow$ véhicule à $\sim$16~Hz ; \texttt{/cmd\_vel}
+produit à bord et transmis au Pico ; tableau de bord de latence en direct
+accessible à travers le lien (\texttt{http://172.16.48.6:8088}) ; retour
+caméra dans \texttt{rqt} via le flux \textbf{compressé} (obligatoire : le flux
+brut 720p ($\sim$600~Mbps) excède la capacité montante du lien 5G
+($\sim$70~Mbps), le JPEG compressé y tient à 30~im/s). \emph{Runbook} 5G
+complet documenté (lancement en deux terminaux + arbre de diagnostic).
+
 % ================= LIVRABLES =================
 \section{Livrables (dépôt GitHub)}
 \begin{itemize}[itemsep=2pt]
@@ -167,11 +206,13 @@ $\uparrow$ \\
   \item \texttt{protova1/joy\_udp\_bridge\_tx.py} /
         \texttt{joy\_udp\_bridge\_rx.py} --- pont \texttt{/joy} ;
   \item \texttt{protova1/launch\_teleop\_p1.sh} --- pile complète ;
-  \item \texttt{docs/protova1\_teleop\_runbook.md} --- procédure reproductible.
+  \item \texttt{docs/protova1\_teleop\_runbook.md} --- procédure reproductible ;
+  \item \texttt{docs/demo5g\_runbook.md} --- \emph{runbook} de la démo 5G
+        (lancement + diagnostic, à jour du correctif SHM).
 \end{itemize}
 
 % ================= SUITE =================
-\section{Prochaines étapes : ProtoVA2, puis la démonstration à deux véhicules}
+\section{Prochaines étapes : vers la démonstration à deux véhicules}
 \begin{enumerate}[itemsep=2pt]
   \item \textbf{ProtoVA2} : investigation du bug \og avance sans accélérateur \fg{}
         (boîte noire), calibrations ;

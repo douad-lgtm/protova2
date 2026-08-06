@@ -1,4 +1,4 @@
-# 📅 Rapport hebdomadaire — ProtoVA1 : remise en service et téléopération
+# 📅 Rapport hebdomadaire — ProtoVA1 remise en service · Démo 5G ProtoVA2 rétablie
 
 **Douae Sebti — PFE ALTEN Labs (ProtoVA) · Semaine du 3 au 6 août 2026**
 
@@ -49,11 +49,36 @@ Constats du premier essai → corrections immédiates :
 | Manque de précision | Course de pédale écrasée sur une plage étroite | Plage élargie → meilleure résolution |
 | ESC à réarmer en débranchant | Firmware muet avant ouverture du port série | Neutre émis dès la mise sous tension |
 
+## 📡 ProtoVA2 — Remise en route de la démo de téléopération 5G
+
+La démo 5G (téléop G29 sur ROS 2 via **Zenoh**, PC hub ↔ véhicule en 172.16.48.7/6) était inopérante depuis le reflash de la Jetson Orin. Diagnostic et remise en route complète le 6 août :
+
+### 🎯 Cause racine : la mémoire partagée (SHM) de Zenoh
+Les nœuds ROS du véhicule mouraient **tous** à l'initialisation (`Failed to create POSIX SHM provider, OS error 12`) alors que le routeur Zenoh survivait — d'où l'impression trompeuse d'un lien « cassé ». En cause : le paquet `rmw_zenoh_cpp` réinstallé après le reflash (build plus récent que celui du PC) tente d'allouer un segment de **mémoire partagée** au démarrage de chaque nœud et échoue, alors que la mémoire était suffisante (3,8 Go libres).
+
+**Correctif** : désactivation de la SHM dans la config de session Zenoh du véhicule :
+```json5
+transport: { shared_memory: { enabled: false } }   // zenoh_session_car.json5
+```
+Sans perte fonctionnelle : la SHM n'optimise que les échanges *intra*-machine, inutile pour un lien 5G.
+
+### 🔧 Remises d'aplomb annexes
+- Adresse fantôme **/30** du DHCP purgée côté véhicule (re-passage en /28 — piège récurrent)
+- Route par défaut 5G supprimée côté PC (l'internet repassait par le lien cellulaire)
+- Service `car5g` réactivé au démarrage
+
+### ✅ Validation de bout en bout
+- Topics du véhicule visibles du PC **à travers la 5G** ; `/joy` (volant) PC → véhicule à ~16 Hz ; `/cmd_vel` produit à bord → Pico
+- Dashboard de latence en direct à travers le lien : http://172.16.48.6:8088
+- Retour caméra dans `rqt` via le flux **compressé** (obligatoire : le 720p brut ≈ 600 Mbps > capacité montante 5G ≈ 70 Mbps ; en JPEG compressé, 30 im/s sans problème)
+- Runbook 5G complet documenté (lancement en 2 terminaux + arbre de diagnostic)
+
 ## 📦 Livrables (dépôt GitHub `protova2`)
 - `protova1/pico_car_freertos.ino` — firmware final
 - `protova1/joy_udp_bridge_tx.py` / `joy_udp_bridge_rx.py` — pont /joy
 - `protova1/launch_teleop_p1.sh` — pile complète
 - `docs/protova1_teleop_runbook.md` — procédure reproductible de A à Z
+- `docs/demo5g_runbook.md` — runbook de la démo 5G (à jour du correctif SHM)
 
 ## 📋 Prochaine étape : ProtoVA2, puis la démo à deux véhicules
 1. **ProtoVA2** : investiguer le bug « avance sans accélérateur » (boîte noire), calibrations
