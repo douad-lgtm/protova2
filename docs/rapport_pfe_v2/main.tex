@@ -36,51 +36,49 @@
 \definecolor{insared}{RGB}{226,0,26}          % rouge officiel INSA (blocs de chapitre)
 \definecolor{altenturquoise}{RGB}{0,150,118}  % accent secondaire
 
-% ---------- style de chapitre du template, recoloré ALTEN ----------
+% ---------- style de chapitre : sobre et professionnel ----------
+% Tout en noir, aligné à gauche : « Chapitre N » puis le titre,
+% un filet fin, et le mini-sommaire du chapitre (sections + sous-sections).
 \usepackage{calc,soul}
+\usepackage{etoc}
 \makeatletter
-\newlength\dlf@normtxtw
-\setlength\dlf@normtxtw{\textwidth}
-\newsavebox{\feline@chapter}
-\newcommand\feline@chapter@marker[1][4cm]{%
-  \sbox\feline@chapter{%
-    \resizebox{!}{#1}{\fboxsep=1pt%
-      \colorbox{insared}{\color{white}\thechapter}%
-    }}%
-    \rotatebox{90}{%
-      \resizebox{%
-        \heightof{\usebox{\feline@chapter}}+\depthof{\usebox{\feline@chapter}}}%
-      {!}{\scshape\so\@chapapp}}\quad%
-    \raisebox{\depthof{\usebox{\feline@chapter}}}{\usebox{\feline@chapter}}%
-}
-\newcommand\feline@chm[1][4cm]{%
-  \sbox\feline@chapter{\feline@chapter@marker[#1]}%
-  \makebox[0pt][c]{%
-    \makebox[1cm][r]{\usebox\feline@chapter}%
-  }}
-\makechapterstyle{daleifmodif}{
-  \renewcommand\chapnamefont{\normalfont\Large\scshape\raggedleft\so}
-  \renewcommand\chaptitlefont{\normalfont\Large\bfseries\scshape}
-  \renewcommand\chapternamenum{} \renewcommand\printchaptername{}
-  \renewcommand\printchapternum{\null\hfill\feline@chm[2.5cm]\par}
-  \renewcommand\afterchapternum{\par\vskip\midchapskip}
-  \renewcommand\printchaptertitle[1]{\color{black}\chaptitlefont\raggedleft ##1\par}
-}
+\newcommand\chapminitoc{%
+  \if@mainmatter
+    \begingroup
+      \etocsetnexttocdepth{subsection}%
+      \etocsettocstyle{}{\vskip 4pt\hrule height 0.4pt\vskip 2pt}%
+      \localtableofcontents
+    \endgroup
+  \fi}
 \makeatother
-\chapterstyle{daleifmodif}
+\makechapterstyle{altenpro}{%
+  \setlength{\beforechapskip}{10pt}
+  \renewcommand*\chapnamefont{\normalfont\Large\bfseries\raggedright}
+  \renewcommand*\chapnumfont{\chapnamefont}
+  \renewcommand*\chaptitlefont{\normalfont\huge\bfseries\raggedright}
+  \renewcommand*\afterchapternum{\par\nobreak\vskip 10pt}
+  \renewcommand*\printchaptertitle[1]{\chaptitlefont ##1\par\nobreak\vskip 8pt\hrule height 1pt}
+  \renewcommand*\afterchaptertitle{\vskip 24pt}
+}
+\chapterstyle{altenpro}
 
-% sections en bleu ALTEN
-\setsecheadstyle{\Large\bfseries\color{black}}
-\setsubsecheadstyle{\large\bfseries\color{black}}
+% titres de sections : noir, gras, alignés à gauche
+\setsecheadstyle{\Large\bfseries\raggedright}
+\setsubsecheadstyle{\large\bfseries\raggedright}
+\setsubsubsecheadstyle{\normalsize\bfseries\raggedright}
 
-% ---------- en-têtes / pieds de page du template ----------
-\makepagestyle{myvf}
-\makeoddfoot{myvf}{}{\thepage}{}
-\makeevenfoot{myvf}{}{\thepage}{}
-\makeheadrule{myvf}{\textwidth}{\normalrulethickness}
-\makeevenhead{myvf}{\small\textsc{\leftmark}}{}{}
-\makeoddhead{myvf}{}{}{\small\textsc{\rightmark}}
-\pagestyle{myvf}
+% ---------- en-têtes : position dans le rapport à gauche, logos à droite ----------
+\nouppercaseheads
+\createmark{chapter}{left}{shownumber}{Chapitre~}{~---~}
+\makepagestyle{altenhead}
+\makeoddfoot{altenhead}{}{\thepage}{}
+\makeevenfoot{altenhead}{}{\thepage}{}
+\makeheadrule{altenhead}{\textwidth}{0.4pt}
+\makeoddhead{altenhead}{\small\leftmark}{}%
+  {\includegraphics[height=11pt]{logo_insa.png}\enspace\includegraphics[height=11pt]{logo_alten.png}}
+\makeevenhead{altenhead}{\small\leftmark}{}%
+  {\includegraphics[height=11pt]{logo_insa.png}\enspace\includegraphics[height=11pt]{logo_alten.png}}
+\pagestyle{altenhead}
 \newcommand{\clearemptydoublepage}{\newpage{\thispagestyle{empty}\clearpage}}
 
 % ---------- paquets utiles ----------
@@ -99,7 +97,7 @@
 \newcommand{\methodes}{\subsubsection*{b- Méthodes utilisées}}
 \newcommand{\resultats}{\subsubsection*{c- Résultats obtenus}}
 \newcommand{\discussion}{\subsubsection*{d- Discussion}}
-\newcommand{\ieme}{\ieme@nothing}
+\providecommand{\ieme}{}
 \renewcommand{\ieme}{\textsuperscript{ème}}
 
 % ---------- métadonnées PDF ----------
