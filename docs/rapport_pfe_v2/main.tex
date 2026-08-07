@@ -12,11 +12,11 @@
 \setlength{\trimedge}{\stockwidth}
 \addtolength{\trimedge}{-\paperwidth}
 \settypeblocksize{634pt}{448.13pt}{*}
-\setulmargins{4cm}{*}{*}
+\setulmargins{2.7cm}{*}{*}
 \setlrmargins{*}{*}{1.5}
 \setmarginnotes{17pt}{51pt}{\onelineskip}
-\setheadfoot{\onelineskip}{2\onelineskip}
-\setheaderspaces{*}{2\onelineskip}{*}
+\setheadfoot{\onelineskip}{1.2\onelineskip}
+\setheaderspaces{*}{1\onelineskip}{*}
 \checkandfixthelayout
 \frenchspacing
 
@@ -52,20 +52,21 @@
   \fi}
 \makeatother
 \makechapterstyle{altenpro}{%
-  \setlength{\beforechapskip}{10pt}
-  \renewcommand*\chapnamefont{\normalfont\Large\bfseries\raggedright}
+  \setlength{\beforechapskip}{8pt}
+  \renewcommand*\chapnamefont{\normalfont\LARGE\bfseries\raggedright}
   \renewcommand*\chapnumfont{\chapnamefont}
-  \renewcommand*\chaptitlefont{\normalfont\huge\bfseries\raggedright}
-  \renewcommand*\afterchapternum{\par\nobreak\vskip 10pt}
-  \renewcommand*\printchaptertitle[1]{\chaptitlefont ##1\par\nobreak\vskip 8pt\hrule height 1pt}
-  \renewcommand*\afterchaptertitle{\vskip 24pt}
+  \renewcommand*\chaptitlefont{\normalfont\Large\bfseries\raggedright}
+  \renewcommand*\afterchapternum{\par\nobreak\vskip 6pt}
+  \renewcommand*\printchaptertitle[1]{\chaptitlefont ##1\par\nobreak\vskip 6pt\hrule height 1pt}
+  \renewcommand*\afterchaptertitle{\vskip 16pt}
 }
 \chapterstyle{altenpro}
 
-% titres de sections : noir, gras, alignés à gauche
-\setsecheadstyle{\Large\bfseries\raggedright}
-\setsubsecheadstyle{\large\bfseries\raggedright}
-\setsubsubsecheadstyle{\normalsize\bfseries\raggedright}
+% hiérarchie des titres : chapitre (grand) > nom du chapitre (moyen) >
+% section (petit) > sous-section (plus petit) > sous-sous-section (petit mais visible)
+\setsecheadstyle{\large\bfseries\raggedright}
+\setsubsecheadstyle{\normalsize\bfseries\raggedright}
+\setsubsubsecheadstyle{\small\bfseries\raggedright}
 
 % ---------- en-têtes : position dans le rapport à gauche, logos à droite ----------
 \nouppercaseheads
