@@ -73,6 +73,62 @@ Sans perte fonctionnelle : la SHM n'optimise que les échanges *intra*-machine, 
 - Retour caméra dans `rqt` via le flux **compressé** (obligatoire : le 720p brut ≈ 600 Mbps > capacité montante 5G ≈ 70 Mbps ; en JPEG compressé, 30 im/s sans problème)
 - Runbook 5G complet documenté (lancement en 2 terminaux + arbre de diagnostic)
 
+## 🤖 ProtoVA2 — Cartographie SLAM en direct + exploration autonome
+
+Travail réalisé sur **ProtoVA2** (Jetson Orin, ROS 2 Humble, WiFi FastDDS) : le véhicule **cartographie son environnement en temps réel tout en se conduisant seul** — il avance vers les passages libres, freine, recule en braquant pour se dégager et repart ailleurs, comme un conducteur réel.
+
+### Chaîne de localisation (validée par la mesure)
+
+```mermaid
+flowchart LR
+  L["RPLIDAR A1<br>/scan 7,4 Hz"] --> RF["rf2o<br>odométrie laser"]
+  P["Pico RP2040<br>encodeur + potentiomètre + IMU"] --> RX["nœud RX<br>/velocity /steering_angle"]
+  RF --> EKF["EKF<br>robot_localization"]
+  RX --> EKF
+  EKF -- TF --> S["slam_toolbox<br>/map"]
+  L --> S
+```
+
+| Vérification | Mesure | Verdict |
+|---|---|---|
+| Cadence lidar `/scan` | 7,4 Hz | ✅ nominale |
+| Sortie EKF `/odometry/filtered` | 7,7 Hz | ✅ fonctionnelle (30 Hz configurés, à optimiser) |
+| **Dérive à l'arrêt (20 s)** | **2,6 mm, 0°** | ✅ pas de biais capteur |
+| Arbre TF `map→odom→base_link` | complet | ✅ cohérent |
+
+### Visualisation en direct (contournement d'un bug RViz)
+Le rendu de la carte dans RViz 2 souffre d'un bug de shader connu (carte jaune uni à chaque mise à jour). Solution : **visualiseur web dédié** (`map_live.py`) — s'abonne à `/map` + TF, dessine la carte en PNG avec la pose du véhicule, servie sur `http://localhost:8090` (rafraîchissement 1 s). RViz reste utilisé pour le nuage lidar, la TF et l'odométrie.
+
+### Exploration autonome : machine à états « follow-the-gap » (`roamer.py`)
+
+```mermaid
+stateDiagram-v2
+  FWD: FWD — avance vers le passage le plus large
+  BRAKE: BRAKE — frein actif (impulsion inverse)
+  PAUSE: PAUSE — neutre (l'ESC l'exige avant le recul)
+  BACKUP: BACKUP — recul en contre-braquage (lidar arrière actif)
+  PAUSE2: PAUSE2 — neutre
+  FWD --> BRAKE: obstacle < 45 cm OU blocage prouvé (encodeur)
+  BRAKE --> PAUSE: 0,4 s
+  PAUSE --> BACKUP: 0,35 s
+  BACKUP --> PAUSE2: obstacle arrière < 35 cm ou 2 s
+  PAUSE2 --> FWD: 0,35 s
+```
+
+Points clés :
+- **Préférence à l'avant** : recul en dernier recours seulement — obstacle réellement proche, ou *blocage prouvé* : gaz commandé mais encodeur immobile 2 s (**proprioception** — robuste aux obstacles invisibles du lidar, moquette, batterie faible)
+- **Sécurité en couches** (twist_mux) : roamer priorité **10** < volant G29 **30** < AEB **255** ; + `stop_all.sh` = arrêt d'urgence (kill global **et** neutre envoyé à la Pico, qui mémorise la dernière commande)
+- La séquence frein → neutre → recul reproduit le « double appui » exigé par l'ESC pour enclencher la marche arrière
+
+### Anomalies débusquées pendant l'intégration
+
+| Anomalie | Correction |
+|---|---|
+| **RX crashait au démarrage** depuis le reflash (`np.float` supprimé du numpy récent, utilisé par le vieux `transforms3d`) → véhicule *aveugle sur son propre corps* → fausses détections de blocage en boucle | `transforms3d` mis à jour (0.4.2) → `/velocity` et `/steering_angle` publient à nouveau |
+| **Deux piles de conduite en double** → deux écrivains sur le port série de la Pico → commandes entremêlées, servo inerte | Nettoyage + règle « une seule pile à la fois » |
+| **La Pico mémorise la dernière commande** : si le logiciel meurt en roulant, le véhicule continue indéfiniment | `stop_all.sh` ; correctif définitif planifié : **watchdog firmware** (neutre auto après 0,5 s sans commande) |
+| Consignes de gaz sous le seuil de roulement (batterie faible) → le logiciel « croit » avancer | Vitesses relevées + détection de blocage par encodeur |
+
 ## 📦 Livrables (dépôt GitHub `protova2`)
 - `protova1/pico_car_freertos.ino` — firmware final
 - `protova1/joy_udp_bridge_tx.py` / `joy_udp_bridge_rx.py` — pont /joy
